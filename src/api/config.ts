@@ -6,7 +6,11 @@ import type { V2fConfig, V2fSourceConfig, MutationResult } from "./types";
 export const fetchConfig = async (): Promise<V2fConfig> => {
   const ds = getDataSource();
   const { listSources } = await import("../data/sourceOps");
-  const data_sources = await listSources();
+  const { listStudies } = await import("../data/studyOps");
+  const [data_sources, studies] = await Promise.all([
+    listSources(),
+    listStudies().catch(() => []),
+  ]);
   let pegasus: V2fConfig["pegasus"] | undefined;
   try {
     const [settings] = await ds.query<{
@@ -26,6 +30,9 @@ export const fetchConfig = async (): Promise<V2fConfig> => {
     }
   } catch {
     /* config schema may not exist yet (pre-migration) */
+  }
+  if (studies.length > 0) {
+    pegasus = { ...(pegasus ?? {}), study: studies };
   }
   return { data_sources, ...(pegasus ? { pegasus } : {}) };
 };

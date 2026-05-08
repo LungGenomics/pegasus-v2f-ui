@@ -15,6 +15,9 @@ interface ConfigDraftActions {
   cancelEditing: () => void;
   setTransforms: (transforms: TransformConfigEntry[]) => void;
   setEvidence: (evidence: V2fEvidenceBlock[]) => void;
+  /** Merge a partial set of top-level fields (name, source_type, url, …) into
+   *  the draft. Used by the schema-driven settings panel. */
+  setFields: (fields: Partial<V2fSourceConfig>) => void;
   /** Get the current draft source (for saving). */
   getDraft: () => V2fSourceConfig | null;
 }
@@ -54,11 +57,19 @@ export function ConfigDraftProvider({ children }: { children: ReactNode }) {
     setDirty(true);
   }, []);
 
+  const setFields = useCallback((fields: Partial<V2fSourceConfig>) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      return { ...prev, ...fields };
+    });
+    setDirty(true);
+  }, []);
+
   const getDraft = useCallback(() => draft, [draft]);
 
   return (
     <ConfigDraftContext.Provider
-      value={{ draft, dirty, editing, startEditing, cancelEditing, setTransforms, setEvidence, getDraft }}
+      value={{ draft, dirty, editing, startEditing, cancelEditing, setTransforms, setEvidence, setFields, getDraft }}
     >
       {children}
     </ConfigDraftContext.Provider>

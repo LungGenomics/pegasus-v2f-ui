@@ -98,6 +98,21 @@ export type MappingField = FieldBase & {
   valueOptions?: Array<{ value: string; label: string }>;
 };
 
+/** Array of nested objects, each rendered with its own EntitySchema. The UX
+ *  bundles add / remove / collapse around each item — useful for evidence
+ *  blocks, future per-source thresholds, etc. */
+export type ListOfObjectsField = FieldBase & {
+  type: "list-of-objects";
+  itemSchema: EntitySchema;
+  /** Default value for newly-added items. */
+  defaultItem?: FormState;
+  /** Singular noun shown on the "Add ..." button and as each item's title. */
+  itemLabel?: string;
+  /** Optional accessor that returns a short summary string for each item
+   *  (shown next to the index when collapsed). */
+  summarize?: (item: FormState) => string;
+};
+
 export type FieldSchema =
   | StringField
   | TextField
@@ -107,7 +122,8 @@ export type FieldSchema =
   | ListField
   | MappingField
   | ColumnRefField
-  | ColumnRefListField;
+  | ColumnRefListField
+  | ListOfObjectsField;
 
 export type EntitySchema = Record<string, FieldSchema>;
 

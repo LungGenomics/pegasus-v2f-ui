@@ -49,16 +49,33 @@ export const configReads = {
 
   allStudies: (): SqlQuery => ({
     sql:
-      "SELECT id, id_prefix, gwas_source, ancestry, sample_size, doi, year, " +
-      "       loci_source, loci_sheet, loci_skip, gene_column, " +
-      "       sentinel_column, pvalue_column, rsid_column, row_version " +
+      "SELECT id, id_prefix, display_name, description, gwas_source, ancestry, " +
+      "       sample_size, doi, year, loci_source, loci_sheet, loci_skip, " +
+      "       gene_column, sentinel_column, pvalue_column, rsid_column, row_version " +
       "FROM config.study_configs ORDER BY id_prefix",
+  }),
+
+  studyByIdPrefix: (idPrefix: string): SqlQuery => ({
+    sql:
+      "SELECT id, id_prefix, display_name, description, gwas_source, ancestry, " +
+      "       sample_size, doi, year, loci_source, loci_sheet, loci_skip, " +
+      "       gene_column, sentinel_column, pvalue_column, rsid_column, row_version " +
+      "FROM config.study_configs WHERE id_prefix = ? LIMIT 1",
+    params: [idPrefix],
   }),
 
   traitsForStudy: (studyId: string): SqlQuery => ({
     sql:
       "SELECT trait, trait_description, trait_ontology_id " +
       "FROM config.study_traits WHERE study_id = ? ORDER BY trait",
+    params: [studyId],
+  }),
+
+  transformsForStudy: (studyId: string): SqlQuery => ({
+    sql:
+      "SELECT id, seq, type, params " +
+      "FROM config.study_transformations " +
+      "WHERE study_id = ? ORDER BY seq",
     params: [studyId],
   }),
 

@@ -144,12 +144,14 @@ export function FormField({
   const { availableColumns } = useSchemaFormContext();
   return (
     <div className="form-control">
-      <label htmlFor={id} className="label py-1">
-        <span className="label-text text-sm">
-          {field.label}
-          {field.required && <span className="text-error ml-0.5">*</span>}
-        </span>
-      </label>
+      {field.label && (
+        <label htmlFor={id} className="label py-1">
+          <span className="label-text text-sm">
+            {field.label}
+            {field.required && <span className="text-error ml-0.5">*</span>}
+          </span>
+        </label>
+      )}
       {renderInput(id, field, value, onChange, availableColumns)}
       {field.description && !error && (
         <span className="text-xs text-base-content/60 mt-1">
@@ -157,6 +159,48 @@ export function FormField({
         </span>
       )}
       {error && <span className="text-xs text-error mt-1">{error}</span>}
+    </div>
+  );
+}
+
+function ListOfObjectsItem({
+  index,
+  item,
+  itemLabel,
+  summary,
+  itemSchema,
+  onChange,
+  onRemove,
+}: {
+  index: number;
+  item: FormState;
+  itemLabel: string;
+  summary?: string;
+  itemSchema: EntitySchema;
+  onChange: (next: FormState) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="border border-base-300 rounded-lg bg-base-100 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium flex-1">
+          {itemLabel} {index + 1}
+          {summary && (
+            <span className="ml-2 text-xs text-base-content/40 font-normal">
+              {summary}
+            </span>
+          )}
+        </span>
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs text-error"
+          onClick={onRemove}
+          title={`Remove ${itemLabel.toLowerCase()}`}
+        >
+          ×
+        </button>
+      </div>
+      <SchemaFields schema={itemSchema} value={item} onChange={onChange} />
     </div>
   );
 }
@@ -406,6 +450,44 @@ function renderInput(
             </option>
           ))}
         </select>
+      );
+    }
+    case "list-of-objects": {
+      const items = (value as FormState[] | undefined) ?? [];
+      const itemLabel = field.itemLabel ?? "Item";
+      return (
+        <div className="space-y-2">
+          {items.length === 0 && (
+            <div className="text-xs text-base-content/40 italic">
+              No {itemLabel.toLowerCase()}s — click "Add" below.
+            </div>
+          )}
+          {items.map((item, i) => (
+            <ListOfObjectsItem
+              key={i}
+              index={i}
+              item={item}
+              itemLabel={itemLabel}
+              summary={field.summarize?.(item)}
+              itemSchema={field.itemSchema}
+              onChange={(next) => {
+                const updated = [...items];
+                updated[i] = next;
+                onChange(updated);
+              }}
+              onRemove={() => onChange(items.filter((_, j) => j !== i))}
+            />
+          ))}
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs"
+            onClick={() =>
+              onChange([...items, { ...(field.defaultItem ?? {}) }])
+            }
+          >
+            + Add {itemLabel.toLowerCase()}
+          </button>
+        </div>
       );
     }
     case "column-ref-list": {

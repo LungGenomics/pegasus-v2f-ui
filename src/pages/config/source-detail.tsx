@@ -19,6 +19,9 @@ import { useConfigDraft } from "./config-draft-context";
 import { TransformEditor } from "./transform-editor";
 import { TransformPicker } from "./transform-picker";
 import { EvidenceEditor } from "./evidence-editor";
+import { SchemaFields } from "../../components/schema-form/schema-form";
+import { sourceConfigSchema } from "../../data/config-schema/source";
+import type { FormState } from "../../components/schema-form/types";
 import type { V2fSourceConfig, TransformConfigEntry } from "../../api/types";
 
 // --- Transform category colors ---
@@ -59,8 +62,12 @@ export function SourceDetail({ source }: Props) {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const { draft, editing, dirty, startEditing, cancelEditing, setTransforms, setEvidence, getDraft } =
+  const { draft, editing, dirty, startEditing, cancelEditing, setTransforms, setEvidence, setFields, getDraft } =
     useConfigDraft();
+
+  // When editing, header should reflect draft so the user sees their work
+  // before they save. In read mode, fall back to the persisted source.
+  const headerSource: V2fSourceConfig = editing && draft ? draft : source;
 
   const patchSource = usePatchSource();
 
@@ -148,16 +155,16 @@ export function SourceDetail({ source }: Props) {
       {/* Compact header bar */}
       <div className={`flex items-center gap-3 px-4 py-3 rounded-lg bg-base-100 ${editing ? "ring-2 ring-primary/20" : ""}`}>
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <h2 className="font-semibold text-sm truncate">{source.display_name ?? source.name}</h2>
+          <h2 className="font-semibold text-sm truncate">{headerSource.display_name ?? headerSource.name}</h2>
           <span className="text-base-content/30">·</span>
-          <span className="text-xs text-base-content/40 shrink-0">{source.source_type}</span>
+          <span className="text-xs text-base-content/40 shrink-0">{headerSource.source_type}</span>
           {readOnlyEvidence.map((e, i) => (
             <span key={i} className="badge badge-xs text-[10px]">{e.category}</span>
           ))}
-          {source.sheet && (
+          {headerSource.sheet && (
             <>
               <span className="text-base-content/30">·</span>
-              <span className="text-xs text-base-content/40 truncate">{source.sheet}</span>
+              <span className="text-xs text-base-content/40 truncate">{headerSource.sheet}</span>
             </>
           )}
         </div>
@@ -196,6 +203,22 @@ export function SourceDetail({ source }: Props) {
       {patchSource.isError && (
         <div role="alert" className="alert alert-error alert-sm text-sm">
           {patchSource.error.message}
+        </div>
+      )}
+
+      {/* Settings panel — schema-driven editor for top-level fields. Only
+          visible while editing; transformations + evidence have their own
+          specialized UIs in the timeline below. */}
+      {editing && draft && (
+        <div className="border border-base-300 rounded-lg bg-base-100 p-4 space-y-3">
+          <div className="text-xs font-medium text-base-content/50">Settings</div>
+          <SchemaFields
+            schema={sourceConfigSchema}
+            value={draft as unknown as FormState}
+            onChange={(next) =>
+              setFields(next as unknown as Partial<V2fSourceConfig>)
+            }
+          />
         </div>
       )}
 
