@@ -120,9 +120,12 @@ export function ConfigWorkspace() {
         </button>
       </div>
 
-      <div className="flex gap-6 h-[calc(100vh-8rem)]">
-        {/* Left pane: stack */}
-        <div className="w-64 shrink-0 overflow-y-auto">
+      <div className="flex gap-6">
+        {/* Left pane: stack — sticky so it stays visible while the right
+            pane scrolls with the page. No own overflow container, so
+            anything popping out of the right pane (dropdowns) doesn't
+            get clipped. */}
+        <div className="w-64 shrink-0 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
           <SourceStack
             sources={sourceItems}
             studies={studyItems}
@@ -134,8 +137,8 @@ export function ConfigWorkspace() {
           />
         </div>
 
-        {/* Right pane: detail */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Right pane: detail. No overflow — page scrolls. */}
+        <div className="flex-1 min-w-0">
           {selected?.type === "new-source" ? (
             <NewSourceForm
               onCreated={(name) => setSelected({ type: "source", name })}

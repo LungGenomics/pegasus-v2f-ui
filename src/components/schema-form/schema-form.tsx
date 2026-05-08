@@ -325,6 +325,23 @@ function renderInput(
                     </option>
                   ))}
                 </select>
+              ) : field.valueAsColumnRef && availableColumns.length > 0 ? (
+                <select
+                  className="select select-bordered select-xs flex-1"
+                  value={v}
+                  onChange={(e) => {
+                    const next = [...entries] as Array<[string, string]>;
+                    next[i] = [k, e.target.value];
+                    update(next);
+                  }}
+                >
+                  <option value="">— column —</option>
+                  {availableColumns.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
               ) : (
                 <input
                   type="text"

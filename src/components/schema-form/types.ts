@@ -82,8 +82,9 @@ export type ColumnRefListField = FieldBase & {
   placeholder?: string;
 };
 
-/** Key→value mapping. Used for rename (old→new column names) and aggregate
- *  (column→function). Rendered as a list of (key, value) input pairs. */
+/** Key→value mapping. Used for rename (old→new column names), aggregate
+ *  (column→function), and evidence-block fields (evidence-column→raw-column).
+ *  Rendered as a list of (key, value) input pairs. */
 export type MappingField = FieldBase & {
   type: "mapping";
   default?: Record<string, string>;
@@ -91,6 +92,8 @@ export type MappingField = FieldBase & {
   valueLabel?: string;
   /** When true, render the key input as a column-ref select. */
   keyAsColumnRef?: boolean;
+  /** When true, render the value input as a column-ref select. */
+  valueAsColumnRef?: boolean;
   /** Restrict values to this fixed set (e.g., aggregate functions). */
   valueOptions?: Array<{ value: string; label: string }>;
 };
