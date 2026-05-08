@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "react-router";
+import { Plus } from "lucide-react";
 import { useConfig } from "../../api/config";
 import { useSources } from "../../api/sources";
 import { Loading, ErrorAlert } from "../../components/loading";
@@ -7,6 +8,7 @@ import { SourceStack } from "./source-stack";
 import { SourceDetail } from "./source-detail";
 import { StudyDetail } from "./study-detail";
 import { ConfigDraftProvider } from "./config-draft-context";
+import { NewSourceForm } from "./new-source-form";
 import type {
   V2fSourceConfig,
   V2fStudyConfig,
@@ -18,6 +20,7 @@ import type {
 type Selection =
   | { type: "source"; name: string }
   | { type: "study"; idPrefix: string }
+  | { type: "new-source" }
   | null;
 
 export function ConfigWorkspace() {
@@ -96,6 +99,15 @@ export function ConfigWorkspace() {
         <span className="text-sm text-base-content/40">
           {sourceItems.length} sources · {studyItems.length} studies
         </span>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => setSelected({ type: "new-source" })}
+          className="btn btn-sm btn-primary gap-1"
+        >
+          <Plus className="size-3.5" />
+          New source
+        </button>
       </div>
 
       <div className="flex gap-6 h-[calc(100vh-8rem)]">
@@ -114,7 +126,12 @@ export function ConfigWorkspace() {
 
         {/* Right pane: detail */}
         <div className="flex-1 overflow-y-auto">
-          {selectedSource ? (
+          {selected?.type === "new-source" ? (
+            <NewSourceForm
+              onCreated={(name) => setSelected({ type: "source", name })}
+              onCancel={() => setSelected(null)}
+            />
+          ) : selectedSource ? (
             <ConfigDraftProvider key={selectedSource.name}>
               <SourceDetail source={selectedSource} />
             </ConfigDraftProvider>
@@ -122,7 +139,7 @@ export function ConfigWorkspace() {
             <StudyDetail study={selectedStudy} />
           ) : (
             <div className="flex items-center justify-center h-full text-base-content/40 text-sm">
-              Select a source or study to view details
+              Select a source or study, or click "New source" to create one
             </div>
           )}
         </div>

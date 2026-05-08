@@ -9,6 +9,7 @@ import type { SourceStackItem, StudyStackItem } from "../../api/types";
 type Selection =
   | { type: "source"; name: string }
   | { type: "study"; idPrefix: string }
+  | { type: "new-source" }
   | null;
 
 interface Props {
