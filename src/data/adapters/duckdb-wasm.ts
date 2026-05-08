@@ -108,6 +108,31 @@ export async function attachInMemoryAsGene(): Promise<void> {
   _inMemoryFile = fname;
 }
 
+/** Register raw bytes as a virtual file DuckDB-WASM can read via SQL
+ *  (read_csv_auto, read_parquet, etc.). Used by the import pipeline. */
+export async function registerSourceBytes(
+  name: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  const db = await bootDuckDB();
+  // Drop any prior registration with the same name first — ignore if missing.
+  try {
+    await db.dropFile(name);
+  } catch {
+    /* not registered */
+  }
+  await db.registerFileBuffer(name, bytes);
+}
+
+export async function dropRegisteredFile(name: string): Promise<void> {
+  const db = await bootDuckDB();
+  try {
+    await db.dropFile(name);
+  } catch {
+    /* not registered */
+  }
+}
+
 export async function exportGeneToBuffer(): Promise<Uint8Array> {
   if (!_inMemoryFile) {
     throw new Error("No in-memory DB attached");

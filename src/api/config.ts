@@ -30,10 +30,22 @@ export const fetchConfig = async (): Promise<V2fConfig> => {
   return { data_sources, ...(pegasus ? { pegasus } : {}) };
 };
 
-// HGNC gene mapping — Phase 1c will load this via `read_csv` into a
-// gene_mapping table and provide a real reader. For now, return empty so
-// consumers don't crash.
-export const fetchGeneMap = async (): Promise<Record<string, string>> => ({});
+// HGNC gene mapping — read from main.gene_mapping if loaded.
+// Returns {} if the table doesn't exist yet (caller should run the
+// loader). Used by client-side preview transforms in the config workspace.
+export const fetchGeneMap = async (): Promise<Record<string, string>> => {
+  try {
+    const rows = await getDataSource().query<{
+      ensembl_gene_id: string;
+      symbol: string;
+    }>({ sql: "SELECT ensembl_gene_id, symbol FROM main.gene_mapping" });
+    const out: Record<string, string> = {};
+    for (const r of rows) out[r.ensembl_gene_id] = r.symbol;
+    return out;
+  } catch {
+    return {};
+  }
+};
 
 export interface TransformTypeSchema {
   type: string;
@@ -72,16 +84,25 @@ type PatchSourceResult = MutationResult & {
 const patchSource = async (args: PatchSourceArgs): Promise<PatchSourceResult> => {
   const { patchSourceConfig } = await import("../data/sourceOps");
   await patchSourceConfig(args.name, args.source);
-  if (args.build) {
+  if (!args.build) {
+    return { success: true };
+  }
+  // Build: re-run the import pipeline against the now-updated config.
+  try {
+    const { importSource } = await import("../data/pipeline/import");
+    const result = await importSource(args.source);
+    return {
+      success: true,
+      built: true,
+      rows: result.rows,
+    };
+  } catch (err) {
     return {
       success: true,
       built: false,
-      build_error:
-        "Rebuild not yet supported — pipeline runtime lands in Phase 1c. " +
-        "Config saved.",
+      build_error: err instanceof Error ? err.message : String(err),
     };
   }
-  return { success: true };
 };
 
 export const usePatchSource = () => {

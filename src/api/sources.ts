@@ -23,30 +23,66 @@ export const fetchSources = async (): Promise<Source[]> => {
 export const fetchProvenance = (): Promise<SourceProvenance[]> =>
   getDataSource().query<SourceProvenance>(sourcesQueries.provenance());
 
-// Pipeline ops — not yet ported. They throw cleanly so callers can show a
-// helpful error rather than crashing on a fetch.
-const PIPELINE_NOT_READY =
-  "Pipeline operations (preview, import, build, materialize) need the " +
-  "pipeline runtime, which lands in Phase 1c.";
+// Pipeline ops — fully ported in Phase 1c.
 
 export const previewGoogleSheet = async (
-  _ss: string,
-  _sheet = "",
-  _skip = 0,
+  ss: string,
+  sheet = "",
+  skip = 0,
 ): Promise<Record<string, unknown>[]> => {
-  throw new Error(PIPELINE_NOT_READY);
+  // Fetch a Google Sheet as CSV via its export URL, parse client-side, and
+  // return up to 100 rows for preview. Mirrors the Python /sources/preview
+  // route that the config workspace used to call.
+  const idMatch = ss.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (!idMatch) throw new Error(`Could not extract spreadsheet ID from URL: ${ss}`);
+  const params = new URLSearchParams({ format: "csv" });
+  if (sheet) params.set("sheet", sheet);
+  const url = `https://docs.google.com/spreadsheets/d/${idMatch[1]}/export?${params}`;
+  const res = await fetch(url, { redirect: "follow" });
+  if (!res.ok) {
+    throw new Error(`Google Sheets fetch failed (${res.status} ${res.statusText})`);
+  }
+  const text = await res.text();
+  const aq = await import("arquero");
+  let table = aq.fromCSV(text);
+  if (skip > 0) table = table.slice(skip);
+  return table.slice(0, 100).objects() as Record<string, unknown>[];
 };
 
-export const importSource = async (_req: ImportRequest): Promise<ImportResult> => {
-  throw new Error(PIPELINE_NOT_READY);
+export const importSource = async (req: ImportRequest): Promise<ImportResult> => {
+  // The mutation surface accepts a thin ImportRequest; we read the full
+  // V2fSourceConfig from config.source_configs (and children) to drive the
+  // pipeline. The hook caller must have INSERTed the config row already —
+  // typically through the config workspace before triggering import.
+  const { getSource } = await import("../data/sourceOps");
+  const source = await getSource(req.name);
+  if (!source) {
+    throw new Error(
+      `Source '${req.name}' is not in config — add it via the config workspace first.`,
+    );
+  }
+  const { importSource: runImport } = await import("../data/pipeline/import");
+  const result = await runImport(source);
+  return { success: true, imported: req.name, rows: result.rows };
 };
 
-export const updateSource = async (_name: string): Promise<MutationResult> => {
-  throw new Error(PIPELINE_NOT_READY);
+export const updateSource = async (name: string): Promise<MutationResult> => {
+  // Re-import semantics: same as a fresh import. The CREATE OR REPLACE
+  // table swap in importSource() makes this idempotent.
+  await importSource({ name, data: [] });
+  return { success: true };
 };
 
 export const materializeScores = async (): Promise<MutationResult> => {
-  throw new Error(PIPELINE_NOT_READY);
+  const { materializeScoredEvidence } = await import(
+    "../data/pipeline/materialize"
+  );
+  const result = await materializeScoredEvidence();
+  return {
+    success: true,
+    scored: result.scored_rows,
+    loci: result.loci,
+  } as MutationResult & { scored: number; loci: number };
 };
 
 export const deleteSource = async (name: string): Promise<MutationResult> => {
