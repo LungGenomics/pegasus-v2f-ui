@@ -1,0 +1,62 @@
+import type { SqlQuery } from "../types";
+
+export const sourcesQueries = {
+  // Stored config blob — caller parses YAML and reads `data_sources`
+  storedConfig: (): SqlQuery => ({
+    sql: "SELECT value FROM _pegasus_meta WHERE key = 'config'",
+  }),
+
+  provenance: (): SqlQuery => ({
+    sql:
+      "SELECT source_tag, source_name, source_type, evidence_category, " +
+      "is_integrated, version, url, citation, date_imported, record_count " +
+      "FROM data_sources ORDER BY evidence_category, source_tag",
+  }),
+
+  evidenceLoci: (sourceTag: string): SqlQuery => ({
+    sql:
+      "SELECT l.locus_id, l.locus_name, l.chromosome, " +
+      "l.start_position, l.end_position, l.lead_pvalue, " +
+      "COUNT(DISTINCT se.gene_symbol) AS n_genes, " +
+      "MAX(se.score) AS max_score " +
+      "FROM scored_evidence se " +
+      "JOIN loci l ON se.locus_id = l.locus_id " +
+      "WHERE se.source_tag = ? " +
+      "GROUP BY l.locus_id, l.locus_name, l.chromosome, " +
+      "l.start_position, l.end_position, l.lead_pvalue " +
+      "ORDER BY l.chromosome, l.start_position",
+    params: [sourceTag],
+  }),
+
+  evidenceRows: (sourceTag: string): SqlQuery => ({
+    sql:
+      "SELECT se.locus_id, l.locus_name, se.study_id, " +
+      "se.gene_symbol, " +
+      "se.evidence_category, se.pvalue, se.effect_size, se.score, " +
+      "se.tissue, se.cell_type, se.ancestry, se.sex, se.rsid " +
+      "FROM scored_evidence se " +
+      "JOIN loci l ON se.locus_id = l.locus_id " +
+      "WHERE se.source_tag = ? " +
+      "ORDER BY l.chromosome, l.start_position, se.gene_symbol",
+    params: [sourceTag],
+  }),
+
+  positionCount: (sourceTag: string): SqlQuery => ({
+    sql:
+      "SELECT COUNT(*) AS n FROM evidence " +
+      "WHERE source_tag = ? AND chromosome IS NOT NULL " +
+      "AND CAST(chromosome AS VARCHAR) != '-'",
+    params: [sourceTag],
+  }),
+
+  variants: (sourceTag: string): SqlQuery => ({
+    sql:
+      "SELECT e.chromosome, e.position, e.rsid, e.gene_symbol, " +
+      "e.pvalue, e.effect_size, e.score, e.tissue, e.cell_type " +
+      "FROM evidence e " +
+      "WHERE e.source_tag = ? " +
+      "AND e.chromosome IS NOT NULL AND CAST(e.chromosome AS VARCHAR) != '-' " +
+      "ORDER BY e.chromosome, e.position",
+    params: [sourceTag],
+  }),
+};

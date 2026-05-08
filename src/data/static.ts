@@ -1,0 +1,26 @@
+// Mirrors EVIDENCE_CATEGORIES in cli/src/pegasus_v2f/pegasus_schema.py.
+// Static — no DB query needed.
+export const EVIDENCE_CATEGORIES: Record<string, string> = {
+  LD: "Linkage Disequilibrium",
+  FM: "Finemapping / Credible Sets",
+  COLOC: "Colocalization",
+  QTL: "Molecular QTL",
+  MR: "Mendelian Randomization",
+  REG: "Regulatory Region",
+  "3D": "Chromatin Interaction",
+  FUNC: "Predicted Functional Impact",
+  PROX: "Proximity to Gene",
+  GWAS: "GWAS Association",
+  PHEWAS: "Phenome-Wide Association",
+  PPI: "Protein-Protein Interaction",
+  SET: "Pathway or Gene Sets",
+  GENEBASE: "Gene-based Association",
+  EXP: "Expression",
+  PERTURB: "Perturbation",
+  KNOW: "Biological Knowledge",
+  TPWAS: "Genetically Predicted Trait",
+  DRUG: "Drug Related",
+  CROSSP: "Cross-phenotype",
+  LIT: "Literature Curation",
+  DB: "Curated Database",
+};

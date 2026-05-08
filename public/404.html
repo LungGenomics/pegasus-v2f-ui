@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>pegasus-v2f-ui</title>
+    <script type="text/javascript">
+      // SPA fallback for GitHub Pages.
+      // Serves any unknown URL by redirecting to / with the original path
+      // encoded as the query string. index.html restores it via history.replaceState
+      // before React Router boots.
+      // Adapted from https://github.com/rafgraph/spa-github-pages (MIT).
+      var pathSegmentsToKeep = 1; // matches /pegasus-v2f-ui/ prefix
+      var l = window.location;
+      l.replace(
+        l.protocol +
+          "//" +
+          l.hostname +
+          (l.port ? ":" + l.port : "") +
+          l.pathname
+            .split("/")
+            .slice(0, 1 + pathSegmentsToKeep)
+            .join("/") +
+          "/?/" +
+          l.pathname
+            .slice(1)
+            .split("/")
+            .slice(pathSegmentsToKeep)
+            .join("/")
+            .replace(/&/g, "~and~") +
+          (l.search ? "&" + l.search.slice(1).replace(/&/g, "~and~") : "") +
+          l.hash,
+      );
+    </script>
+  </head>
+  <body></body>
+</html>

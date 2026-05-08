@@ -1,0 +1,15 @@
+node_modules
+dist
+*.tsbuildinfo
+.DS_Store
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.idea
+.vscode
+*.swp

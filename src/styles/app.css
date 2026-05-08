@@ -1,0 +1,53 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+@plugin "daisyui/theme" {
+  name: "pegasus";
+  default: true;
+  color-scheme: light;
+
+  /* Primary — deep indigo-blue */
+  --color-primary: oklch(45% 0.12 260);
+  --color-primary-content: oklch(98% 0.005 260);
+
+  /* Secondary — slate teal */
+  --color-secondary: oklch(50% 0.06 220);
+  --color-secondary-content: oklch(98% 0.005 220);
+
+  /* Accent — warm amber */
+  --color-accent: oklch(72% 0.14 70);
+  --color-accent-content: oklch(20% 0.03 70);
+
+  /* Neutral — cool gray */
+  --color-neutral: oklch(55% 0.02 250);
+  --color-neutral-content: oklch(98% 0.005 250);
+
+  /* Base surfaces */
+  --color-base-100: oklch(99% 0.005 260);
+  --color-base-200: oklch(96% 0.008 260);
+  --color-base-300: oklch(91% 0.012 260);
+  --color-base-content: oklch(25% 0.02 250);
+
+  /* Info — cool blue */
+  --color-info: oklch(55% 0.10 240);
+  --color-info-content: oklch(98% 0.005 240);
+
+  /* Success — forest green */
+  --color-success: oklch(54% 0.08 153);
+  --color-success-content: oklch(98% 0.005 153);
+
+  /* Warning — warm orange */
+  --color-warning: oklch(77% 0.13 58);
+  --color-warning-content: oklch(25% 0.05 58);
+
+  /* Error — brick red */
+  --color-error: oklch(52% 0.16 24);
+  --color-error-content: oklch(98% 0.005 24);
+
+  --radius-box: 0.5rem;
+  --radius-field: 0.25rem;
+  --radius-selector: 0.5rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
