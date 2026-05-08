@@ -4,6 +4,9 @@
 // Mirrors the 14 transforms compiled by src/data/transform/compile.ts.
 // Adding a new transform type means: add a compiler in compile.ts AND add
 // a param schema here.
+//
+// "column-ref" / "column-ref-list" fields render as selects populated from
+// the upstream stage's preview when a SchemaFormProvider supplies columns.
 
 import type { EntitySchema } from "../../components/schema-form/types";
 
@@ -27,22 +30,22 @@ export const transformSchemas: Record<string, EntitySchema> = {
       description: "Map old column names to new ones.",
       keyLabel: "old name",
       valueLabel: "new name",
+      keyAsColumnRef: true,
       required: true,
     },
   },
 
   select: {
     columns: {
-      type: "list",
+      type: "column-ref-list",
       label: "Columns to keep",
-      description: "Comma-separated list of columns to keep.",
       required: true,
     },
   },
 
   deduplicate: {
     columns: {
-      type: "list",
+      type: "column-ref-list",
       label: "Columns (optional)",
       description:
         "Drop rows where these columns are identical. Leave blank to deduplicate by all columns.",
@@ -51,7 +54,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
 
   strip_prefix: {
     column: {
-      type: "string",
+      type: "column-ref",
       label: "Column",
       required: true,
     },
@@ -65,7 +68,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
 
   uppercase: {
     column: {
-      type: "string",
+      type: "column-ref",
       label: "Column",
       required: true,
     },
@@ -73,7 +76,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
 
   drop_nulls: {
     columns: {
-      type: "list",
+      type: "column-ref-list",
       label: "Columns",
       description: "Drop rows where any of these columns is NULL.",
       required: true,
@@ -82,7 +85,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
 
   coerce_numeric: {
     columns: {
-      type: "list",
+      type: "column-ref-list",
       label: "Columns",
       description:
         "Convert these columns to numeric. Values that don't parse become NULL.",
@@ -92,7 +95,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
 
   filter_values: {
     column: {
-      type: "string",
+      type: "column-ref",
       label: "Column",
       required: true,
     },
@@ -106,7 +109,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
 
   parse_variant_id: {
     column: {
-      type: "string",
+      type: "column-ref",
       label: "Variant ID column",
       description:
         'Parses formats like "chr1:16979534C:A" into chromosome + position columns.',
@@ -116,7 +119,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
 
   split_column: {
     column: {
-      type: "string",
+      type: "column-ref",
       label: "Source column",
       required: true,
     },
@@ -129,15 +132,14 @@ export const transformSchemas: Record<string, EntitySchema> = {
     columns: {
       type: "list",
       label: "Output columns",
-      description:
-        "Names for the resulting split columns, in order.",
+      description: "Names for the resulting split columns, in order.",
       required: true,
     },
   },
 
   aggregate: {
     group_by: {
-      type: "list",
+      type: "column-ref-list",
       label: "Group by",
       description: "Columns to group rows by.",
       required: true,
@@ -148,6 +150,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
       description:
         "For each column, pick the aggregation function applied within each group.",
       keyLabel: "column",
+      keyAsColumnRef: true,
       valueOptions: AGG_FUNCTIONS,
       required: true,
     },
@@ -170,7 +173,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
 
   map_gene_id: {
     column: {
-      type: "string",
+      type: "column-ref",
       label: "Gene ID column",
       required: true,
     },

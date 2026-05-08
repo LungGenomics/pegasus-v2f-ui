@@ -10,6 +10,7 @@ import type {
   FieldError,
 } from "./types";
 import { validateForm } from "./types";
+import { useSchemaFormContext } from "./context";
 
 export type SchemaFormProps = {
   schema: EntitySchema;
@@ -140,6 +141,7 @@ export function FormField({
   onChange: (v: unknown) => void;
 }) {
   const id = `field-${name}`;
+  const { availableColumns } = useSchemaFormContext();
   return (
     <div className="form-control">
       <label htmlFor={id} className="label py-1">
@@ -148,7 +150,7 @@ export function FormField({
           {field.required && <span className="text-error ml-0.5">*</span>}
         </span>
       </label>
-      {renderInput(id, field, value, onChange)}
+      {renderInput(id, field, value, onChange, availableColumns)}
       {field.description && !error && (
         <span className="text-xs text-base-content/60 mt-1">
           {field.description}
@@ -164,6 +166,7 @@ function renderInput(
   field: FieldSchema,
   value: unknown,
   onChange: (v: unknown) => void,
+  availableColumns: string[],
 ): React.ReactElement {
   switch (field.type) {
     case "string":
@@ -272,17 +275,36 @@ function renderInput(
           )}
           {entries.map(([k, v], i) => (
             <div key={i} className="flex gap-1.5 items-center">
-              <input
-                type="text"
-                className="input input-bordered input-xs flex-1"
-                value={k}
-                placeholder={field.keyLabel ?? "key"}
-                onChange={(e) => {
-                  const next = [...entries] as Array<[string, string]>;
-                  next[i] = [e.target.value, v];
-                  update(next);
-                }}
-              />
+              {field.keyAsColumnRef && availableColumns.length > 0 ? (
+                <select
+                  className="select select-bordered select-xs flex-1"
+                  value={k}
+                  onChange={(e) => {
+                    const next = [...entries] as Array<[string, string]>;
+                    next[i] = [e.target.value, v];
+                    update(next);
+                  }}
+                >
+                  <option value="">— column —</option>
+                  {availableColumns.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  className="input input-bordered input-xs flex-1"
+                  value={k}
+                  placeholder={field.keyLabel ?? "key"}
+                  onChange={(e) => {
+                    const next = [...entries] as Array<[string, string]>;
+                    next[i] = [e.target.value, v];
+                    update(next);
+                  }}
+                />
+              )}
               <span className="text-base-content/40 text-xs">→</span>
               {field.valueOptions ? (
                 <select
@@ -336,6 +358,105 @@ function renderInput(
           >
             + Add
           </button>
+        </div>
+      );
+    }
+    case "column-ref": {
+      // Select when columns are known; plain text otherwise.
+      if (availableColumns.length === 0) {
+        return (
+          <input
+            id={id}
+            type="text"
+            className="input input-bordered input-sm w-full"
+            value={(value as string) ?? ""}
+            placeholder={field.placeholder ?? "column name"}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        );
+      }
+      return (
+        <select
+          id={id}
+          className="select select-bordered select-sm w-full"
+          value={(value as string) ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">— select column —</option>
+          {availableColumns.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    case "column-ref-list": {
+      const list = (value as string[] | undefined) ?? [];
+      if (availableColumns.length === 0) {
+        // Fallback to comma-separated text input
+        return (
+          <input
+            id={id}
+            type="text"
+            className="input input-bordered input-sm w-full"
+            value={list.join(", ")}
+            placeholder={field.placeholder ?? "comma-separated column names"}
+            onChange={(e) =>
+              onChange(
+                e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter((s) => s.length > 0),
+              )
+            }
+          />
+        );
+      }
+      // Chip-style multi-select: show selected as chips, add via dropdown.
+      const remaining = availableColumns.filter((c) => !list.includes(c));
+      return (
+        <div className="space-y-1.5">
+          {list.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {list.map((c) => (
+                <span
+                  key={c}
+                  className="badge badge-sm badge-outline gap-1 pr-1"
+                >
+                  {c}
+                  <button
+                    type="button"
+                    className="hover:text-error"
+                    onClick={() => onChange(list.filter((x) => x !== c))}
+                    title={`Remove ${c}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-base-content/40 italic">
+              No columns selected.
+            </div>
+          )}
+          {remaining.length > 0 && (
+            <select
+              className="select select-bordered select-xs w-full"
+              value=""
+              onChange={(e) => {
+                if (e.target.value) onChange([...list, e.target.value]);
+              }}
+            >
+              <option value="">+ Add column…</option>
+              {remaining.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       );
     }

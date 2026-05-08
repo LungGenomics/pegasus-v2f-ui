@@ -3,6 +3,7 @@ import { type ColumnTable } from "arquero";
 import { ArrowUp, ArrowDown, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import type { TransformConfigEntry } from "../../api/types";
 import { TransformParamEditor } from "../../components/schema-form/transform-param-editor";
+import { SchemaFormProvider } from "../../components/schema-form/context";
 
 export interface StagePreview {
   rowCount: number;
@@ -126,17 +127,22 @@ export function TransformEditor({
 
 function TransformFields({
   config,
+  columns,
   onChange,
 }: {
   config: TransformConfigEntry;
-  /** Available columns from the upstream stage's preview — kept in props for
-   *  forward-compat with schema-form fields that opt into column-ref typing. */
+  /** Available columns from the upstream stage's preview — fed to the
+   *  SchemaFormProvider so column-ref fields can render as selects. */
   columns: string[];
   onChange: (c: TransformConfigEntry) => void;
 }) {
   // Schema-driven: pull the right schema from data/config-schema/transforms
   // and render via SchemaFields. Adding a new transform type now means a
   // schema entry + a compiler entry, no field component edits.
-  return <TransformParamEditor transform={config} onChange={onChange} />;
+  return (
+    <SchemaFormProvider columns={columns}>
+      <TransformParamEditor transform={config} onChange={onChange} />
+    </SchemaFormProvider>
+  );
 }
 

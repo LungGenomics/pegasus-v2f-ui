@@ -65,6 +65,23 @@ export type ListField = FieldBase & {
   placeholder?: string;
 };
 
+/** Column-ref field: renders as a select populated from the SchemaFormProvider's
+ *  availableColumns. Falls back to a plain text input when no context columns
+ *  are available — keeps the schema-driven editor functional outside the
+ *  transform pipeline (e.g., when no preview has run yet). */
+export type ColumnRefField = FieldBase & {
+  type: "column-ref";
+  default?: string;
+  placeholder?: string;
+};
+
+/** List of column refs — multi-pick dropdown / chip editor. */
+export type ColumnRefListField = FieldBase & {
+  type: "column-ref-list";
+  default?: string[];
+  placeholder?: string;
+};
+
 /** Key→value mapping. Used for rename (old→new column names) and aggregate
  *  (column→function). Rendered as a list of (key, value) input pairs. */
 export type MappingField = FieldBase & {
@@ -72,6 +89,8 @@ export type MappingField = FieldBase & {
   default?: Record<string, string>;
   keyLabel?: string;
   valueLabel?: string;
+  /** When true, render the key input as a column-ref select. */
+  keyAsColumnRef?: boolean;
   /** Restrict values to this fixed set (e.g., aggregate functions). */
   valueOptions?: Array<{ value: string; label: string }>;
 };
@@ -83,7 +102,9 @@ export type FieldSchema =
   | BooleanField
   | EnumField
   | ListField
-  | MappingField;
+  | MappingField
+  | ColumnRefField
+  | ColumnRefListField;
 
 export type EntitySchema = Record<string, FieldSchema>;
 

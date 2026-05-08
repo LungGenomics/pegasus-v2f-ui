@@ -20,6 +20,13 @@ export const studyConfigSchema: EntitySchema = {
     label: "Display name",
     placeholder: "e.g. Shrine 2023",
   },
+  traits: {
+    type: "list",
+    label: "Traits",
+    description:
+      "One or more trait labels covered by this study (e.g. FEV1, FVC).",
+    required: true,
+  },
   description: {
     type: "text",
     label: "Description",

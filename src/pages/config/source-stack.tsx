@@ -10,6 +10,7 @@ type Selection =
   | { type: "source"; name: string }
   | { type: "study"; idPrefix: string }
   | { type: "new-source" }
+  | { type: "new-study" }
   | null;
 
 interface Props {

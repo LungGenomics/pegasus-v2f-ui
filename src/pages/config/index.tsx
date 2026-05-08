@@ -9,6 +9,7 @@ import { SourceDetail } from "./source-detail";
 import { StudyDetail } from "./study-detail";
 import { ConfigDraftProvider } from "./config-draft-context";
 import { NewSourceForm } from "./new-source-form";
+import { NewStudyForm } from "./new-study-form";
 import type {
   V2fSourceConfig,
   V2fStudyConfig,
@@ -21,6 +22,7 @@ type Selection =
   | { type: "source"; name: string }
   | { type: "study"; idPrefix: string }
   | { type: "new-source" }
+  | { type: "new-study" }
   | null;
 
 export function ConfigWorkspace() {
@@ -102,6 +104,14 @@ export function ConfigWorkspace() {
         <div className="flex-1" />
         <button
           type="button"
+          onClick={() => setSelected({ type: "new-study" })}
+          className="btn btn-sm btn-ghost gap-1"
+        >
+          <Plus className="size-3.5" />
+          New study
+        </button>
+        <button
+          type="button"
           onClick={() => setSelected({ type: "new-source" })}
           className="btn btn-sm btn-primary gap-1"
         >
@@ -129,6 +139,11 @@ export function ConfigWorkspace() {
           {selected?.type === "new-source" ? (
             <NewSourceForm
               onCreated={(name) => setSelected({ type: "source", name })}
+              onCancel={() => setSelected(null)}
+            />
+          ) : selected?.type === "new-study" ? (
+            <NewStudyForm
+              onCreated={(idPrefix) => setSelected({ type: "study", idPrefix })}
               onCancel={() => setSelected(null)}
             />
           ) : selectedSource ? (
