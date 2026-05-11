@@ -113,6 +113,19 @@ export type ListOfObjectsField = FieldBase & {
   summarize?: (item: FormState) => string;
 };
 
+/** Trait picker — delegates to <TraitInput>, which combines local
+ *  config.traits autocomplete with OLS search. Stored as string[] of
+ *  trait_ids; the form layer hides the ontology / enrichment plumbing. */
+export type TraitListField = FieldBase & {
+  type: "trait-list";
+  default?: string[];
+  /** When true, only one trait can be selected at a time. */
+  single?: boolean;
+  /** Restrict OLS search to specific ontologies. */
+  ontologies?: string[];
+  placeholder?: string;
+};
+
 export type FieldSchema =
   | StringField
   | TextField
@@ -123,7 +136,8 @@ export type FieldSchema =
   | MappingField
   | ColumnRefField
   | ColumnRefListField
-  | ListOfObjectsField;
+  | ListOfObjectsField
+  | TraitListField;
 
 export type EntitySchema = Record<string, FieldSchema>;
 

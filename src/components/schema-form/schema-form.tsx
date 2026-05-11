@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import { validateForm } from "./types";
 import { useSchemaFormContext } from "./context";
+import { TraitInput } from "../trait-input";
 
 export type SchemaFormProps = {
   schema: EntitySchema;
@@ -450,6 +451,20 @@ function renderInput(
             </option>
           ))}
         </select>
+      );
+    }
+    case "trait-list": {
+      const list = (value as string[] | undefined) ?? [];
+      return (
+        <TraitInput
+          value={list}
+          onChange={(next) =>
+            onChange(field.single ? next.slice(0, 1) : next)
+          }
+          multiple={!field.single}
+          placeholder={field.placeholder}
+          ontologies={field.ontologies}
+        />
       );
     }
     case "list-of-objects": {
