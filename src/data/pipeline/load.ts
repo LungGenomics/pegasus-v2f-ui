@@ -88,6 +88,58 @@ export interface LoadResult {
   rows: number;
 }
 
+export interface PreviewResult {
+  columns: string[];
+  sampleRows: Record<string, unknown>[];
+  totalRows: number;
+}
+
+/** Fetch + parse a source's file in memory and return columns + sample
+ *  rows, without writing anything to the DB. Used by the Add Data
+ *  wizard's step 1 so the user can see real columns before the source
+ *  is committed. Supports the same source types as loadRawSource. */
+export async function previewSource(
+  source: Pick<ConfigSource, "source_type" | "url" | "sheet" | "skip_rows" | "name">,
+): Promise<PreviewResult> {
+  // Build a minimal ConfigSource so fetchAndPrepare's contract is
+  // satisfied. id isn't used by the fetch path.
+  const fakeId = "preview";
+  const fetched = await fetchAndPrepare({
+    id: fakeId,
+    name: source.name || "preview",
+    source_type: source.source_type,
+    url: source.url,
+    sheet: source.sheet,
+    skip_rows: source.skip_rows,
+  });
+
+  const aq = await import("arquero");
+  let table;
+  if (source.source_type === "parquet") {
+    // Arquero can't parse Parquet directly; tell the user.
+    throw new Error(
+      "Parquet preview isn't supported in the wizard yet — save the source first and use the source detail page to inspect.",
+    );
+  }
+  const text = new TextDecoder().decode(fetched.bytes);
+  const delim =
+    source.source_type === "tsv" ||
+    fetched.registerAs.endsWith(".tsv") ||
+    fetched.registerAs.endsWith(".txt")
+      ? "\t"
+      : ",";
+  table = aq.fromCSV(text, { delimiter: delim });
+  if ((source.skip_rows ?? 0) > 0) {
+    table = table.slice(source.skip_rows ?? 0);
+  }
+
+  return {
+    columns: table.columnNames(),
+    sampleRows: table.slice(0, 10).objects() as Record<string, unknown>[],
+    totalRows: table.numRows(),
+  };
+}
+
 /** Load a source's raw bytes into main.raw_<source_id>. Idempotent —
  *  CREATE OR REPLACE TABLE wipes any prior contents. */
 export async function loadRawSource(source: ConfigSource): Promise<LoadResult> {
