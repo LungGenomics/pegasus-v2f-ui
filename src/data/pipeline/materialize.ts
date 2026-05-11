@@ -18,6 +18,29 @@
 
 import { getDataSource } from "../select";
 
+const MAIN_SCORED_DDL = `CREATE TABLE IF NOT EXISTS main.scored_evidence (
+  locus_id           VARCHAR,
+  loci_source_id     UUID,
+  loci_derivation_id UUID,
+  gene_symbol        VARCHAR,
+  evidence_category  VARCHAR,
+  source_tag         VARCHAR,
+  trait              VARCHAR,
+  trait_id           UUID,
+  pvalue             DOUBLE,
+  effect_size        DOUBLE,
+  score              DOUBLE,
+  tissue             VARCHAR,
+  cell_type          VARCHAR,
+  rsid               VARCHAR,
+  ancestry           VARCHAR,
+  sex                VARCHAR,
+  match_type         VARCHAR,
+  integration_rank   INTEGER,
+  is_predicted_effector BOOLEAN,
+  n_candidate_genes  INTEGER
+)`;
+
 const STAGING = {
   candidates: "main._matr_candidates",
   variantEv: "main._matr_variant_ev",
@@ -34,14 +57,18 @@ export type MaterializeResult = {
 
 export async function materializeScoredEvidence(): Promise<MaterializeResult> {
   const ds = getDataSource();
+  await ds.exec({ sql: MAIN_SCORED_DDL });
 
-  // 0. Sanity: required tables exist
-  for (const t of ["loci", "evidence", "genes", "scored_evidence"]) {
+  // 0. Sanity: required upstream tables exist. scored_evidence is
+  // created above if missing; loci/evidence are populated by the
+  // route+loci pipeline steps; genes must be loaded separately (CLI
+  // build artifact for now).
+  for (const t of ["loci", "evidence", "genes"]) {
     try {
       await ds.query({ sql: `SELECT 1 FROM main.${t} LIMIT 0` });
-    } catch (err) {
+    } catch {
       throw new Error(
-        `Cannot materialize: table main.${t} not found. Run import + create studies/loci first.`,
+        `Cannot materialize: table main.${t} not found. Run import + loci derivation first.`,
       );
     }
   }
@@ -66,8 +93,9 @@ export async function materializeScoredEvidence(): Promise<MaterializeResult> {
   await ds.exec({
     sql:
       `CREATE OR REPLACE TABLE ${STAGING.variantEv} AS ` +
-      `SELECT l.locus_id, l.study_id, ` +
-      `       e.gene_symbol, e.evidence_category, e.source_tag, e.trait, ` +
+      `SELECT l.locus_id, l.loci_source_id, l.loci_derivation_id, ` +
+      `       e.gene_symbol, e.evidence_category, e.source_tag, ` +
+      `       e.trait, e.trait_id, ` +
       `       e.pvalue, e.effect_size, e.score, e.tissue, e.cell_type, ` +
       `       e.rsid, e.ancestry, e.sex, ` +
       `       'position' AS match_type ` +
@@ -90,8 +118,9 @@ export async function materializeScoredEvidence(): Promise<MaterializeResult> {
       `  UNION ` +
       `  SELECT DISTINCT locus_id, gene_symbol FROM ${STAGING.variantEv}` +
       `) ` +
-      `SELECT lg.locus_id, l.study_id, ` +
-      `       e.gene_symbol, e.evidence_category, e.source_tag, e.trait, ` +
+      `SELECT lg.locus_id, l.loci_source_id, l.loci_derivation_id, ` +
+      `       e.gene_symbol, e.evidence_category, e.source_tag, ` +
+      `       e.trait, e.trait_id, ` +
       `       e.pvalue, e.effect_size, e.score, e.tissue, e.cell_type, ` +
       `       e.rsid, e.ancestry, e.sex, ` +
       `       'gene' AS match_type ` +
@@ -139,12 +168,14 @@ export async function materializeScoredEvidence(): Promise<MaterializeResult> {
   await ds.exec({
     sql:
       `INSERT INTO main.scored_evidence (` +
-      `  locus_id, study_id, gene_symbol, evidence_category, source_tag, trait, ` +
+      `  locus_id, loci_source_id, loci_derivation_id, ` +
+      `  gene_symbol, evidence_category, source_tag, trait, trait_id, ` +
       `  pvalue, effect_size, score, tissue, cell_type, rsid, ancestry, sex, ` +
       `  match_type, integration_rank, is_predicted_effector, n_candidate_genes` +
       `) ` +
-      `SELECT ae.locus_id, ae.study_id, ae.gene_symbol, ae.evidence_category, ` +
-      `       ae.source_tag, ae.trait, ae.pvalue, ae.effect_size, ae.score, ` +
+      `SELECT ae.locus_id, ae.loci_source_id, ae.loci_derivation_id, ` +
+      `       ae.gene_symbol, ae.evidence_category, ` +
+      `       ae.source_tag, ae.trait, ae.trait_id, ae.pvalue, ae.effect_size, ae.score, ` +
       `       ae.tissue, ae.cell_type, ae.rsid, ae.ancestry, ae.sex, ae.match_type, ` +
       `       sc.integration_rank, sc.is_predicted_effector, cc.n_candidate_genes ` +
       `FROM ${STAGING.allEv} ae ` +
@@ -157,10 +188,10 @@ export async function materializeScoredEvidence(): Promise<MaterializeResult> {
   await ds.exec({
     sql:
       `INSERT INTO main.scored_evidence (` +
-      `  locus_id, study_id, gene_symbol, match_type, integration_rank, ` +
-      `  is_predicted_effector, n_candidate_genes` +
+      `  locus_id, loci_source_id, loci_derivation_id, gene_symbol, match_type, ` +
+      `  integration_rank, is_predicted_effector, n_candidate_genes` +
       `) ` +
-      `SELECT c.locus_id, l.study_id, c.gene_symbol, ` +
+      `SELECT c.locus_id, l.loci_source_id, l.loci_derivation_id, c.gene_symbol, ` +
       `       'gene' AS match_type, NULL AS integration_rank, ` +
       `       FALSE AS is_predicted_effector, cc.n_candidate_genes ` +
       `FROM ${STAGING.candidates} c ` +

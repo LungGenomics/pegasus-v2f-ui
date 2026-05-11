@@ -51,19 +51,16 @@ export const previewGoogleSheet = async (
 };
 
 export const importSource = async (req: ImportRequest): Promise<ImportResult> => {
-  // STUBBED during Phase 0 of the web-first config redesign — the legacy
-  // build pipeline is being replaced (Phase 1). Until that lands, callers
-  // get a clear error rather than a half-broken import attempt.
-  const { getSource } = await import("../data/sourceOps");
-  const source = await getSource(req.name);
-  if (!source) {
-    throw new Error(
-      `Source '${req.name}' is not in config — add it via the config workspace first.`,
-    );
-  }
-  const { importSource: runImport } = await import("../data/pipeline/import");
-  await runImport();
-  return { success: true, imported: req.name, rows: 0 };
+  // Wires the new build orchestrator (load → route → loci). The source
+  // must already exist in config.sources with at least one derivation
+  // before calling — the wizard handles that for the user.
+  const { buildSource } = await import("../data/pipeline/build");
+  const result = await buildSource(req.name);
+  const totalEvidenceRows = result.derivations.reduce(
+    (acc, d) => acc + d.rows,
+    0,
+  );
+  return { success: true, imported: req.name, rows: totalEvidenceRows };
 };
 
 export const updateSource = async (name: string): Promise<MutationResult> => {
