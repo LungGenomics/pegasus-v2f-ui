@@ -1,9 +1,8 @@
 import type { DataSource } from "../types";
 import type { Migration } from "./types";
-import { migration as m001 } from "./001-initial-config-schema";
-import { migration as m002 } from "./002-yaml-blob-to-tables";
+import { migration as m001 } from "./001-redesigned-schema";
 
-const ALL_MIGRATIONS: Migration[] = [m001, m002].sort(
+const ALL_MIGRATIONS: Migration[] = [m001].sort(
   (a, b) => a.version - b.version,
 );
 

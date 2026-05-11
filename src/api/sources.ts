@@ -7,6 +7,7 @@ import type {
   ImportResult,
   MutationResult,
   Source,
+  SourceContribution,
   SourceEvidenceResponse,
   SourceLocus,
   SourceEvidenceRow,
@@ -50,10 +51,9 @@ export const previewGoogleSheet = async (
 };
 
 export const importSource = async (req: ImportRequest): Promise<ImportResult> => {
-  // The mutation surface accepts a thin ImportRequest; we read the full
-  // V2fSourceConfig from config.source_configs (and children) to drive the
-  // pipeline. The hook caller must have INSERTed the config row already —
-  // typically through the config workspace before triggering import.
+  // STUBBED during Phase 0 of the web-first config redesign — the legacy
+  // build pipeline is being replaced (Phase 1). Until that lands, callers
+  // get a clear error rather than a half-broken import attempt.
   const { getSource } = await import("../data/sourceOps");
   const source = await getSource(req.name);
   if (!source) {
@@ -62,8 +62,8 @@ export const importSource = async (req: ImportRequest): Promise<ImportResult> =>
     );
   }
   const { importSource: runImport } = await import("../data/pipeline/import");
-  const result = await runImport(source);
-  return { success: true, imported: req.name, rows: result.rows };
+  await runImport();
+  return { success: true, imported: req.name, rows: 0 };
 };
 
 export const updateSource = async (name: string): Promise<MutationResult> => {
@@ -146,6 +146,20 @@ export const useSourceVariants = (sourceTag: string | null, enabled: boolean) =>
 
 export const useProvenance = () =>
   useQuery({ queryKey: ["sources", "provenance"], queryFn: fetchProvenance });
+
+export const fetchSourcesForTrait = (
+  trait: string,
+): Promise<SourceContribution[]> =>
+  getDataSource().query<SourceContribution>(
+    sourcesQueries.sourcesForTrait(trait),
+  );
+
+export const useTraitSources = (trait: string) =>
+  useQuery({
+    queryKey: ["traits", trait, "sources"],
+    queryFn: () => fetchSourcesForTrait(trait),
+    enabled: !!trait,
+  });
 
 export const useImportSource = () => {
   const qc = useQueryClient();

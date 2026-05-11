@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback, useRef } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { ChevronDown, X } from "lucide-react";
 import { useTraitLoci } from "../api/traits";
 import { useChromSizes, useEvidenceCategories } from "../api/db";
+import { useTraitSources } from "../api/sources";
 import { PageHeader } from "../components/layout/page-header";
 import { Loading, ErrorAlert } from "../components/loading";
 import { GenomeTrack, type GenomeTrackHandle } from "../components/genome-track/genome-track";
@@ -333,7 +334,102 @@ export function TraitDetailPage() {
           labelByGene={labelByGene}
         />
       </div>
+
+      {/* Sources contributing to this trait — links route into /sources
+          with a ?from=trait/<trait> referrer so the source detail page
+          can render a back-link. */}
+      <TraitSourcesPanel trait={trait} />
     </div>
+  );
+}
+
+// --- Sources contributing panel ---
+
+function TraitSourcesPanel({ trait }: { trait: string }) {
+  const sourcesQ = useTraitSources(trait);
+
+  // Group rows by source_tag so a source that spans multiple categories
+  // shows once with its categories as chips.
+  const grouped = useMemo(() => {
+    if (!sourcesQ.data) return [];
+    type Row = {
+      sourceTag: string;
+      categories: { name: string; count: number }[];
+      totalRecords: number;
+      totalGenes: number;
+      totalLoci: number;
+    };
+    const map = new Map<string, Row>();
+    for (const r of sourcesQ.data) {
+      const recs = Number(r.record_count) || 0;
+      const genes = Number(r.n_genes) || 0;
+      const loci = Number(r.n_loci) || 0;
+      let row = map.get(r.source_tag);
+      if (!row) {
+        row = {
+          sourceTag: r.source_tag,
+          categories: [],
+          totalRecords: 0,
+          totalGenes: 0,
+          totalLoci: 0,
+        };
+        map.set(r.source_tag, row);
+      }
+      row.categories.push({ name: r.evidence_category, count: recs });
+      row.totalRecords += recs;
+      // n_genes / n_loci can double-count across categories — keep the max
+      // as a conservative approximation rather than summing
+      if (genes > row.totalGenes) row.totalGenes = genes;
+      if (loci > row.totalLoci) row.totalLoci = loci;
+    }
+    return [...map.values()].sort((a, b) => b.totalRecords - a.totalRecords);
+  }, [sourcesQ.data]);
+
+  if (sourcesQ.isLoading) return null;
+  if (!grouped.length) return null;
+
+  // Two-part referrer: `from=trait` (kind) + `fromId=<trait>` (id) so trait
+  // names containing slashes (FEV1/FVC ratio) survive as a single value
+  // and don't get parsed as path segments on the way back.
+  const fromQs = `from=trait&fromId=${encodeURIComponent(trait)}`;
+
+  return (
+    <section className="mt-8">
+      <h3 className="text-sm font-medium text-base-content/60 mb-3">
+        Sources contributing ({grouped.length})
+      </h3>
+      <div className="border border-base-300 rounded-lg bg-base-100 overflow-hidden">
+        {grouped.map((row, i) => (
+          <Link
+            key={row.sourceTag}
+            to={`/sources?source=${encodeURIComponent(row.sourceTag)}&${fromQs}`}
+            className={`flex items-center gap-3 px-4 py-2 hover:bg-base-200/50 transition-colors ${
+              i > 0 ? "border-t border-base-300" : ""
+            }`}
+          >
+            <span className="font-mono text-sm text-primary truncate flex-1">
+              {row.sourceTag}
+            </span>
+            <div className="flex flex-wrap gap-1 shrink-0">
+              {row.categories.map((c) => (
+                <span
+                  key={c.name}
+                  className="badge badge-xs badge-outline text-[10px]"
+                >
+                  {c.name}
+                </span>
+              ))}
+            </div>
+            <span className="text-xs text-base-content/50 tabular-nums shrink-0 w-24 text-right">
+              {row.totalRecords.toLocaleString()} rows
+            </span>
+            <span className="text-xs text-base-content/40 tabular-nums shrink-0 w-20 text-right">
+              {row.totalGenes} genes
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 

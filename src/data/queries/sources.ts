@@ -59,4 +59,21 @@ export const sourcesQueries = {
       "ORDER BY e.chromosome, e.position",
     params: [sourceTag],
   }),
+
+  // Source rollup for a trait: which sources contributed scored evidence
+  // for any study under this trait, grouped by source_tag + category.
+  // Joins through `studies.trait` since trait isn't on scored_evidence.
+  sourcesForTrait: (trait: string): SqlQuery => ({
+    sql:
+      "SELECT se.source_tag, se.evidence_category, " +
+      "       COUNT(*) AS record_count, " +
+      "       COUNT(DISTINCT se.gene_symbol) AS n_genes, " +
+      "       COUNT(DISTINCT se.locus_id) AS n_loci " +
+      "FROM scored_evidence se " +
+      "JOIN studies s ON s.study_id = se.study_id " +
+      "WHERE s.trait = ? " +
+      "GROUP BY se.source_tag, se.evidence_category " +
+      "ORDER BY se.evidence_category, record_count DESC",
+    params: [trait],
+  }),
 };

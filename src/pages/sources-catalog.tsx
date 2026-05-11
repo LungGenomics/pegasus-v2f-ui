@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { ArrowLeft, ChevronDown, ChevronRight, X } from "lucide-react";
 import { useProvenance, useSourceEvidence, useSourceVariants } from "../api/sources";
 import { useChromSizes } from "../api/db";
@@ -38,7 +38,10 @@ const CATEGORY_DOTS: Record<string, string> = {
 
 export function SourcesCatalog() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const selectedSource = searchParams.get("source");
+  const fromKind = searchParams.get("from"); // "trait" | "gene" | null
+  const fromId = searchParams.get("fromId"); // decoded by useSearchParams
 
   const { data: provenance, isLoading } = useProvenance();
 
@@ -48,7 +51,25 @@ export function SourcesCatalog() {
       <SourceDetail
         sourceTag={selectedSource}
         source={source ?? null}
-        onBack={() => setSearchParams({})}
+        fromKind={fromKind}
+        fromId={fromId}
+        onBack={() => {
+          // If we have a structured referrer, route back to its detail
+          // page (re-encoding fromId so slashes in trait names survive).
+          if (fromKind && fromId) {
+            const base =
+              fromKind === "trait"
+                ? "traits"
+                : fromKind === "gene"
+                  ? "genes"
+                  : null;
+            if (base) {
+              navigate(`/${base}/${encodeURIComponent(fromId)}`);
+              return;
+            }
+          }
+          setSearchParams({});
+        }}
       />
     );
   }
@@ -115,13 +136,31 @@ const fmtVal = (v: unknown) => {
   return String(v);
 };
 
+/** Map structured ?from= + ?fromId= referrer to a back-link label. The
+ *  id is already decoded by useSearchParams. */
+function backLinkLabel(
+  fromKind: string | null,
+  fromId: string | null,
+): string {
+  if (!fromKind || !fromId) return "Sources";
+  if (fromKind === "trait" || fromKind === "gene") return fromId;
+  return "Back";
+}
+
 function SourceDetail({
   sourceTag,
   source,
+  fromKind,
+  fromId,
   onBack,
 }: {
   sourceTag: string;
   source: SourceProvenance | null;
+  /** Referrer kind from `?from=` — "trait" or "gene", or null when the
+   *  user landed cold. Drives the back-link label and target. */
+  fromKind: string | null;
+  /** Decoded id of the referrer (trait name or gene symbol). */
+  fromId: string | null;
   onBack: () => void;
 }) {
   const { data, isLoading } = useSourceEvidence(sourceTag);
@@ -403,7 +442,7 @@ function SourceDetail({
           className="inline-flex items-center gap-1 text-sm text-base-content/50 hover:text-base-content mb-2"
         >
           <ArrowLeft className="size-3.5" />
-          Sources
+          {backLinkLabel(fromKind, fromId)}
         </button>
         <h1 className="text-lg font-medium font-mono">{sourceTag}</h1>
         {source && (

@@ -176,6 +176,16 @@ export interface SourceProvenance {
   record_count: number | string;
 }
 
+/** Source rollup for one trait — how much each source contributed across
+ *  the trait's studies. Returned by `sourcesForTrait` query. */
+export interface SourceContribution {
+  source_tag: string;
+  evidence_category: string;
+  record_count: number | string;
+  n_genes: number | string;
+  n_loci: number | string;
+}
+
 export interface SourceLocus {
   locus_id: string;
   locus_name: string;
@@ -279,6 +289,133 @@ export interface TableInfo {
 }
 
 export type EvidenceCategories = Record<string, string>;
+
+// --- Redesigned config types ---
+// Per plan 2026-05-11-config-redesign-web-first.md. These are the new
+// shapes returned by the data-layer ops (sourceOps, derivationOps,
+// traitOps). The legacy V2fSourceConfig / V2fStudyConfig / V2fConfig
+// types below are kept for the duration of the UI transition and will
+// be removed once Phase 4 (source detail editor) lands.
+
+export interface ConfigSource {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  source_type: string;
+  url?: string;
+  sheet?: string;
+  skip_rows?: number;
+  row_version?: number;
+  created_at?: string;
+  updated_at?: string;
+  /** Optional citation metadata (gwas_source, ancestry, etc.) when this
+   *  source represents a published study. Populated by listSources /
+   *  getSource via a LEFT JOIN. */
+  citation?: SourceCitation;
+  /** Declared trait associations — `config.source_traits` rows. For
+   *  sources whose trait is per-row, derivations carry that info
+   *  instead and this stays empty. */
+  trait_ids?: string[];
+}
+
+export interface SourceCitation {
+  source_id: string;
+  gwas_source?: string;
+  ancestry?: string;
+  sample_size?: number;
+  doi?: string;
+  year?: number;
+  pubmed_id?: string;
+  updated_at?: string;
+}
+
+export type DerivationRole = "evidence" | "loci_definition";
+export type DerivationCentric = "variant" | "gene";
+export type DerivationTraitScope = "constant" | "column";
+
+export interface ConfigDerivation {
+  id: string;
+  source_id: string;
+  source_tag: string;
+  display_name?: string;
+  role: DerivationRole;
+  evidence_category: string;
+  centric: DerivationCentric;
+  trait_scope: DerivationTraitScope;
+  row_version?: number;
+  created_at?: string;
+  updated_at?: string;
+  /** Loaded by getDerivation / listDerivationsForSource. */
+  mappings?: DerivationMapping[];
+  transforms?: DerivationTransform[];
+  /** When trait_scope = 'constant'. */
+  trait_ids?: string[];
+  /** When trait_scope = 'column'. */
+  trait_column?: DerivationTraitColumn;
+}
+
+export interface DerivationMapping {
+  canonical_field: string;
+  raw_column: string;
+}
+
+export interface DerivationTransform {
+  seq: number;
+  type: string;
+  params: Record<string, unknown>;
+}
+
+export interface DerivationTraitColumn {
+  raw_column: string;
+  trait_id_lookup?: string;
+}
+
+export interface ConfigTrait {
+  id: string;
+  label: string;
+  description?: string;
+  primary_ontology?: string;
+  primary_ontology_id?: string;
+  ontology_label?: string;
+  xrefs?: TraitXref[];
+  ontology_version?: string;
+  parent_trait_id?: string;
+  trait_kind?: "measurement" | "disease" | "phenotype" | "other";
+  synonyms?: string[];
+  hierarchy_path?: TraitHierarchyNode[];
+  ot_phenotypes?: TraitPhenotype[];
+  ot_drugs?: TraitDrug[];
+  ot_therapeutic_areas?: string[];
+  last_enriched_at?: string;
+  row_version?: number;
+}
+
+export interface TraitXref {
+  onto: string;
+  id: string;
+  label?: string;
+}
+
+export interface TraitHierarchyNode {
+  id: string;
+  label: string;
+}
+
+export interface TraitPhenotype {
+  hpo_id: string;
+  label: string;
+  frequency?: string;
+  onset?: string;
+  modifier?: string;
+}
+
+export interface TraitDrug {
+  chembl_id: string;
+  name: string;
+  max_phase?: number;
+  mechanism_of_action?: string;
+}
 
 // --- Config (v2f.yaml) ---
 

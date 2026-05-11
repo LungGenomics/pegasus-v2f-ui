@@ -151,7 +151,7 @@ export function GeneDetailPage() {
                       <tr key={src.sourceTag} className="hover">
                         <td className="font-mono text-xs">
                           <Link
-                            to={`/sources?source=${encodeURIComponent(src.sourceTag)}`}
+                            to={`/sources?source=${encodeURIComponent(src.sourceTag)}&from=gene&fromId=${encodeURIComponent(g.gene_symbol)}`}
                             className="text-primary hover:underline"
                           >
                             {src.sourceTag}
