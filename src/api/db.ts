@@ -14,39 +14,57 @@ const COUNT_TABLES = [
   "data_sources",
 ] as const;
 
-const safeCount = async (
+/** Read which tables exist in main schema. Used to skip missing-table
+ *  queries before they fire — DuckDB-WASM logs SQL errors to the
+ *  console even when our code catches them, so "check then query" is
+ *  the only way to silence the noise. */
+async function fetchMainTables(
+  ds: ReturnType<typeof getDataSource>,
+): Promise<Set<string>> {
+  try {
+    const rows = await ds.query<{ table_name: string }>({
+      sql:
+        "SELECT table_name FROM information_schema.tables " +
+        "WHERE table_schema = 'main'",
+    });
+    return new Set(rows.map((r) => r.table_name));
+  } catch {
+    return new Set();
+  }
+}
+
+const countIfExists = async (
   ds: ReturnType<typeof getDataSource>,
   table: string,
+  existing: Set<string>,
 ): Promise<number> => {
-  try {
-    const [r] = await ds.query<{ n: number }>(dbQueries.rowCount(table));
-    return Number(r?.n ?? 0);
-  } catch {
-    return 0;
-  }
+  if (!existing.has(table)) return 0;
+  const [r] = await ds.query<{ n: number }>(dbQueries.rowCount(table));
+  return Number(r?.n ?? 0);
 };
 
-const safeMeta = async (
+const metaIfExists = async (
   ds: ReturnType<typeof getDataSource>,
   key: string,
+  existing: Set<string>,
 ): Promise<string> => {
-  try {
-    const [r] = await ds.query<{ value: string }>(dbQueries.metaValue(key));
-    return r?.value ?? "-";
-  } catch {
-    return "-";
-  }
+  if (!existing.has("_pegasus_meta")) return "-";
+  const [r] = await ds.query<{ value: string }>(dbQueries.metaValue(key));
+  return r?.value ?? "-";
 };
 
 export const fetchStatus = async (): Promise<DbStatus> => {
   const ds = getDataSource();
-  const counts = await Promise.all(COUNT_TABLES.map((t) => safeCount(ds, t)));
+  const existing = await fetchMainTables(ds);
+  const counts = await Promise.all(
+    COUNT_TABLES.map((t) => countIfExists(ds, t, existing)),
+  );
   const [n_studies, n_loci, n_genes, n_evidence_rows, n_scored_rows, n_sources] =
     counts as [number, number, number, number, number, number];
   const has_pegasus = n_scored_rows > 0;
   const [genome_build, package_version] = await Promise.all([
-    safeMeta(ds, "genome_build"),
-    safeMeta(ds, "package_version"),
+    metaIfExists(ds, "genome_build", existing),
+    metaIfExists(ds, "package_version", existing),
   ]);
   return {
     n_studies,
@@ -63,8 +81,9 @@ export const fetchStatus = async (): Promise<DbStatus> => {
 export const fetchTables = async (): Promise<TableInfo[]> => {
   const ds = getDataSource();
   const tables = await ds.query<{ table_name: string }>(dbQueries.tables());
+  const existing = new Set(tables.map((t) => t.table_name));
   const counts = await Promise.all(
-    tables.map((t) => safeCount(ds, t.table_name)),
+    tables.map((t) => countIfExists(ds, t.table_name, existing)),
   );
   return tables.map((t, i) => ({
     name: t.table_name,
@@ -128,7 +147,9 @@ export const useEvidenceCategories = () =>
   });
 
 export const fetchChromSizes = async (): Promise<ChromSizes> => {
-  const build = await safeMeta(getDataSource(), "genome_build");
+  const ds = getDataSource();
+  const existing = await fetchMainTables(ds);
+  const build = await metaIfExists(ds, "genome_build", existing);
   return fetchChromSizesDirect(build === "-" ? "hg38" : build);
 };
 

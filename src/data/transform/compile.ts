@@ -242,6 +242,39 @@ function compileCustomApplyFTrait(input: string): string {
   );
 }
 
+/** Explode a delimiter-separated column into multiple rows.
+ *
+ *   {type: 'explode_column', column: 'trait', delimiter: ','}
+ *   → row with trait="FEV1,FVC" becomes two rows, trait="FEV1" and trait="FVC".
+ *
+ * Uses DuckDB's UNNEST + string_split. Whitespace trimmed from each
+ * value when `trim` is true (default). Empty strings post-split are
+ * filtered out so trailing delimiters don't produce phantom rows.
+ *
+ * Cardinality-changing transform — most others preserve row count, but
+ * this one is N→M. Useful for aggregated gene-list files that pack
+ * multiple traits / tissues / contexts per row. */
+function compileExplodeColumn(t: TransformConfigEntry, input: string): string {
+  const col = String((t as { column?: string }).column ?? "").trim();
+  if (!col) return input;
+  const delim = String((t as { delimiter?: string }).delimiter ?? ",");
+  const trim = (t as { trim?: boolean }).trim !== false;
+  const valueExpr = trim
+    ? `TRIM(UNNEST(string_split(CAST(${ident(col)} AS VARCHAR), ${strLit(delim)})))`
+    : `UNNEST(string_split(CAST(${ident(col)} AS VARCHAR), ${strLit(delim)}))`;
+  // Two-stage: UNNEST in an inner SELECT (filtering NULL originals
+  // pre-explode), then strip empty results in an outer SELECT so
+  // trailing delimiters don't yield blank rows.
+  return (
+    `SELECT * FROM (` +
+    `SELECT * EXCLUDE (${ident(col)}), ${valueExpr} AS ${ident(col)} ` +
+    `FROM ${sub(input)} ` +
+    `WHERE ${ident(col)} IS NOT NULL` +
+    `) ` +
+    `WHERE ${ident(col)} <> ''`
+  );
+}
+
 function compileCustom(t: TransformConfigEntry, input: string): string {
   const fn = String((t as { custom_function?: string }).custom_function ?? "");
   switch (fn) {
@@ -281,6 +314,8 @@ export function compileTransform(
       return compileParseVariantId(t, input);
     case "split_column":
       return compileSplitColumn(t, input);
+    case "explode_column":
+      return compileExplodeColumn(t, input);
     case "aggregate":
       return compileAggregate(t, input);
     case "compute":

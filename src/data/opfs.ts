@@ -86,6 +86,13 @@ export async function clearDuckDB(): Promise<void> {
     const dir = await getDirHandle(false);
     await dir.removeEntry(FILE);
   } catch (err) {
+    // NotFoundError = file wasn't there to begin with (forgotten earlier
+    // or never created). That's not a problem — clearDuckDB is
+    // idempotent. Anything else (NoModificationAllowedError when the
+    // worker still holds a lock, etc.) is worth a warning since the
+    // next attach will end up overwriting stale bytes.
+    const name = (err as { name?: string } | null)?.name;
+    if (name === "NotFoundError") return;
     console.warn(
       "clearDuckDB: failed to remove OPFS file (likely still locked); will be overwritten on next attach.",
       err,

@@ -21,8 +21,14 @@ export const fetchSources = async (): Promise<Source[]> => {
   return sources as unknown as Source[];
 };
 
-export const fetchProvenance = (): Promise<SourceProvenance[]> =>
-  getDataSource().query<SourceProvenance>(sourcesQueries.provenance());
+export const fetchProvenance = async (): Promise<SourceProvenance[]> => {
+  // main.data_sources is a runtime provenance table populated by builds;
+  // on a fresh DB before any build, it doesn't exist. Return empty so
+  // /sources renders the "no sources" state cleanly.
+  const { tableExists } = await import("../data/select");
+  if (!(await tableExists("data_sources"))) return [];
+  return getDataSource().query<SourceProvenance>(sourcesQueries.provenance());
+};
 
 // Pipeline ops — fully ported in Phase 1c.
 

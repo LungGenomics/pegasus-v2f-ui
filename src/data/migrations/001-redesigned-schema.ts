@@ -217,8 +217,19 @@ const STATEMENTS: string[] = [
 ];
 
 const apply = async (ds: DataSource): Promise<void> => {
-  for (const stmt of STATEMENTS) {
-    await ds.exec({ sql: stmt });
+  for (let i = 0; i < STATEMENTS.length; i++) {
+    const stmt = STATEMENTS[i]!;
+    // First word of the statement for a compact label.
+    const label = stmt.trim().split(/\s+/).slice(0, 6).join(" ");
+    try {
+      await ds.exec({ sql: stmt });
+    } catch (err) {
+      console.error(
+        `[migration 001] statement ${i + 1}/${STATEMENTS.length} failed: ${label}…`,
+        err,
+      );
+      throw err;
+    }
   }
 };
 

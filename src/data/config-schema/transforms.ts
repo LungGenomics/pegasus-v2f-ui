@@ -137,6 +137,29 @@ export const transformSchemas: Record<string, EntitySchema> = {
     },
   },
 
+  explode_column: {
+    column: {
+      type: "column-ref",
+      label: "Column to explode",
+      description:
+        "Each row with a delimiter-separated value in this column becomes multiple rows, one per split value. Useful for aggregated sheets where a single row lists several traits (or tissues, etc.).",
+      required: true,
+    },
+    delimiter: {
+      type: "string",
+      label: "Delimiter",
+      default: ",",
+      required: true,
+    },
+    trim: {
+      type: "boolean",
+      label: "Trim whitespace",
+      description:
+        "Strip leading/trailing whitespace from each split value (recommended).",
+      default: true,
+    },
+  },
+
   aggregate: {
     group_by: {
       type: "column-ref-list",
@@ -227,6 +250,7 @@ export const transformTypeMeta: Array<{
   { value: "filter_values", label: "Filter values", description: "Keep rows matching values" },
   { value: "parse_variant_id", label: "Parse variant ID", description: "Split chr1:123:A:T into chr+pos" },
   { value: "split_column", label: "Split column", description: "Split string into multiple columns" },
+  { value: "explode_column", label: "Explode column", description: "One row per delimiter-separated value (changes row count)" },
   { value: "aggregate", label: "Aggregate", description: "Group by + aggregate" },
   { value: "compute", label: "Compute", description: "Derived column from arithmetic" },
   { value: "map_gene_id", label: "Map gene ID", description: "Ensembl → HGNC" },

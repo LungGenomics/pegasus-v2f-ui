@@ -1,10 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { getDataSource } from "../data/select";
+import { getDataSource, tableExists } from "../data/select";
 import { studiesQueries } from "../data/queries/studies";
 import type { Effector, Locus, LocusGene, Study, StudyDetail } from "./types";
 
-export const fetchStudies = (): Promise<Study[]> =>
-  getDataSource().query<Study>(studiesQueries.list());
+export const fetchStudies = async (): Promise<Study[]> => {
+  // main.studies is a legacy table that doesn't exist on freshly-created
+  // DBs (it'll become a view over derivations with role=loci_definition
+  // in Phase 6). Return empty rather than throwing so the homepage
+  // renders cleanly on a brand-new DB.
+  if (!(await tableExists("studies"))) return [];
+  return getDataSource().query<Study>(studiesQueries.list());
+};
 
 export const fetchStudy = async (id: string): Promise<StudyDetail> => {
   const ds = getDataSource();

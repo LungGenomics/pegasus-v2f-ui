@@ -139,7 +139,10 @@ export async function exportGeneToBuffer(): Promise<Uint8Array> {
   }
   const db = await bootDuckDB();
   const conn = await getConn();
-  // Flush any pending writes to the buffer before copying.
+  // Flush any pending writes to the buffer before copying. This is a
+  // no-op when the DB is empty (the common case for the new
+  // create-DB flow that exports immediately after ATTACH); kept
+  // defensively in case the caller does writes first.
   try {
     await conn.query("CHECKPOINT");
   } catch (err) {

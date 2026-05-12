@@ -46,6 +46,34 @@ export function getDataSource(): DataSource {
   return _instance ?? _noSource;
 }
 
+/** Cheap existence check for a table in main schema. Lets callers
+ *  gracefully skip queries against tables that don't exist yet on a
+ *  fresh DB without DuckDB-WASM emitting noisy worker-side errors —
+ *  the worker logs SQL errors to console even when our code catches
+ *  the rejection. Cached briefly so repeated calls in one render
+ *  pass don't hammer information_schema. */
+const _existsCache = new Map<string, { ts: number; exists: boolean }>();
+const EXISTS_TTL_MS = 2000;
+export async function tableExists(name: string): Promise<boolean> {
+  const cached = _existsCache.get(name);
+  if (cached && Date.now() - cached.ts < EXISTS_TTL_MS) {
+    return cached.exists;
+  }
+  try {
+    const rows = await getDataSource().query<{ x: number }>({
+      sql:
+        "SELECT 1 AS x FROM information_schema.tables " +
+        "WHERE table_schema = 'main' AND table_name = ? LIMIT 1",
+      params: [name],
+    });
+    const exists = rows.length > 0;
+    _existsCache.set(name, { ts: Date.now(), exists });
+    return exists;
+  } catch {
+    return false;
+  }
+}
+
 export function subscribeDataSource(listener: () => void): () => void {
   _listeners.add(listener);
   return () => _listeners.delete(listener);
@@ -127,24 +155,44 @@ export async function detachDuckDB(): Promise<void> {
 //   (2) copy the resulting bytes out via copyFileToBuffer, write to OPFS,
 //       dispose the worker, re-attach via the OPFS handle so subsequent
 //       writes are durably persisted.
+// Bundled empty DuckDB file (built once with `duckdb empty.duckdb -c
+// "PRAGMA version"`). ~12 KB. Used as the starting bytes for "Create
+// new database" so we don't depend on duckdb-wasm's copyFileToBuffer
+// (which throws a bare Exception {} in 1.33.1-dev45 after ATTACH).
+import emptyDuckdbUrl from "./empty.duckdb?url";
+
 export async function createNewDuckDB(name = "new.duckdb"): Promise<void> {
+  // Strategy:
+  //   1. Fetch the bundled empty DuckDB bytes (built with the host CLI).
+  //   2. Write those bytes to OPFS.
+  //   3. ATTACH the OPFS handle.
+  //   4. Run migrations against the live OPFS-backed DB — writes flow
+  //      through BROWSER_FSACCESS directly to OPFS, so we never have
+  //      to copy bytes back out of duckdb-wasm.
+  //
+  // This sidesteps copyFileToBuffer entirely, which the 1.33.1-dev45
+  // worker rejects with a bare Exception {} after ATTACH.
+  const log = (msg: string) => console.info(`[createNewDuckDB] ${msg}`);
   const m = await import("./adapters/duckdb-wasm");
+  log("disposing prior worker");
   await m.disposeAll();
+  log("clearing OPFS");
   await clearDuckDB();
 
-  // Phase 1: in-memory init + migrations
-  await m.attachInMemoryAsGene();
-  const initDs = new m.DuckDBWasmDataSource();
-  await ensureSchema(initDs);
-  const bytes = await m.exportGeneToBuffer();
+  log(`fetching empty DuckDB bytes from ${emptyDuckdbUrl}`);
+  const res = await fetch(emptyDuckdbUrl);
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch bundled empty DuckDB (${res.status} ${res.statusText})`,
+    );
+  }
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  log(`got ${bytes.byteLength} empty-DB bytes`);
 
-  // Phase 2: persist to OPFS, re-attach
-  await m.disposeAll();
-  // Slice into a non-shared ArrayBuffer — TS's File constructor types reject
-  // SharedArrayBuffer-backed Uint8Arrays.
-  const blob = new Blob([new Uint8Array(bytes).slice().buffer], {
+  const blob = new Blob([bytes.slice().buffer], {
     type: "application/octet-stream",
   });
+  log("writing empty bytes to OPFS");
   await saveDuckDB(new File([blob], name, { type: "application/octet-stream" }));
   const handle = await getSavedHandle();
   if (!handle) {
@@ -152,14 +200,17 @@ export async function createNewDuckDB(name = "new.duckdb"): Promise<void> {
       "OPFS not available in this browser — can't persist the new database.",
     );
   }
+
+  log("attaching from OPFS handle");
   await m.attachOpfsHandle(handle);
   const ds = new m.DuckDBWasmDataSource();
-  // ensureSchema is idempotent — _migrations table already lists version 1.
+  log("running migrations against OPFS-backed DB");
   await ensureSchema(ds);
 
   _instance = ds;
   _state = "duckdb-wasm";
   _initPromise = null;
+  log("done — notifying listeners");
   notify();
 }
 

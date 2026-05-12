@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getDataSource } from "../data/select";
+import { getDataSource, tableExists } from "../data/select";
 import { genesQueries } from "../data/queries/genes";
 import type { Gene, GeneEvidence, GeneScore, GeneSearchResult } from "./types";
 
@@ -16,6 +16,12 @@ const runSearch = async (
   offset: number,
   scoredOnly: boolean,
 ): Promise<PaginatedResponse<GeneSearchResult>> => {
+  // gene_search_index is a legacy table; doesn't exist on freshly-
+  // created DBs. Return empty so the genes page renders cleanly until
+  // a build / future read-view upgrade populates it.
+  if (!(await tableExists("gene_search_index"))) {
+    return { results: [], total: 0 };
+  }
   const ds = getDataSource();
   const [results, [count]] = await Promise.all([
     ds.query<GeneSearchResult>(

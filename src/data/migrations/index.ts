@@ -6,16 +6,24 @@ const ALL_MIGRATIONS: Migration[] = [m001].sort(
   (a, b) => a.version - b.version,
 );
 
+async function ensureMigrationsTable(ds: DataSource): Promise<void> {
+  // Bootstrap step — runs before any migration so the SELECT below
+  // always works. CREATE TABLE IF NOT EXISTS is idempotent.
+  await ds.exec({
+    sql: `CREATE TABLE IF NOT EXISTS main._migrations (
+            version    INTEGER PRIMARY KEY,
+            name       VARCHAR NOT NULL,
+            applied_at TIMESTAMP NOT NULL DEFAULT now(),
+            checksum   VARCHAR
+          )`,
+  });
+}
+
 async function getAppliedVersions(ds: DataSource): Promise<Set<number>> {
-  try {
-    const rows = await ds.query<{ version: number }>({
-      sql: "SELECT version FROM main._migrations ORDER BY version",
-    });
-    return new Set(rows.map((r) => Number(r.version)));
-  } catch {
-    // Table doesn't exist yet — first run.
-    return new Set();
-  }
+  const rows = await ds.query<{ version: number }>({
+    sql: "SELECT version FROM main._migrations ORDER BY version",
+  });
+  return new Set(rows.map((r) => Number(r.version)));
 }
 
 export async function ensureSchema(ds: DataSource): Promise<void> {
@@ -23,6 +31,7 @@ export async function ensureSchema(ds: DataSource): Promise<void> {
     // Read-only data source — skip migrations entirely.
     return;
   }
+  await ensureMigrationsTable(ds);
   const applied = await getAppliedVersions(ds);
   for (const m of ALL_MIGRATIONS) {
     if (applied.has(m.version)) continue;
