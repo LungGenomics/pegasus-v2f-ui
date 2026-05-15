@@ -1,24 +1,35 @@
-// Config workspace — interim Phase 3a state.
+// Config workspace — Phase 4 state.
 //
-// Until Phase 4 brings back the source detail editor, the workspace
-// is a sources list (from config.sources) + an "Add data" wizard that
-// drives the new build pipeline end-to-end. Clicking a source row is
-// a no-op for now; per-source edit lands in Phase 4.
+// Sources list at /config; clicking a source row opens the source
+// detail editor in-place. "Add data" launches the wizard. Selection
+// is held in URL state (?source=name) so refresh keeps the view.
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router";
 import { Plus, Database, FlaskConical, ArrowLeft } from "lucide-react";
-import { Link } from "react-router";
 import { listSources } from "../../data/sourceOps";
 import { AddDataWizard } from "./add-data-wizard";
+import { SourceDetailEditor } from "./source-detail";
 
 export function ConfigWorkspace() {
+  const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(false);
+  const selectedSource = params.get("source");
 
   const sourcesQ = useQuery({
     queryKey: ["config", "sources"],
     queryFn: listSources,
   });
+
+  if (selectedSource) {
+    return (
+      <SourceDetailEditor
+        sourceName={selectedSource}
+        onBack={() => setParams({})}
+      />
+    );
+  }
 
   if (adding) {
     return (
@@ -32,9 +43,12 @@ export function ConfigWorkspace() {
         </button>
         <AddDataWizard
           onCancel={() => setAdding(false)}
-          onDone={() => {
+          onDone={(name) => {
             setAdding(false);
             void sourcesQ.refetch();
+            // Jump into the new source's detail page so the user can
+            // add more derivations or rebuild without hunting for it.
+            setParams({ source: name });
           }}
         />
       </div>
@@ -76,11 +90,13 @@ export function ConfigWorkspace() {
           {sources.map((s, i) => {
             const isStudy = Boolean(s.citation?.gwas_source);
             return (
-              <div
+              <button
                 key={s.id}
-                className={`flex items-center gap-3 px-4 py-3 ${
+                type="button"
+                className={`w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-base-200/40 transition-colors ${
                   i > 0 ? "border-t border-base-300" : ""
                 }`}
+                onClick={() => setParams({ source: s.name })}
               >
                 {isStudy ? (
                   <FlaskConical className="size-4 text-base-content/40" />
@@ -112,25 +128,11 @@ export function ConfigWorkspace() {
                     )}
                   </div>
                 </div>
-                <Link
-                  to={`/sources?source=${encodeURIComponent(s.name)}`}
-                  className="btn btn-ghost btn-xs"
-                  title="View built rows"
-                >
-                  view
-                </Link>
-              </div>
+              </button>
             );
           })}
         </div>
       )}
-
-      <p className="text-xs text-base-content/40 mt-6">
-        Per-source editing (transforms, derivations, evidence preview)
-        lands in Phase 4 of the redesign. The Add Data wizard creates
-        one source + one derivation; multi-derivation editing is the
-        same Phase 4 work.
-      </p>
     </div>
   );
 }

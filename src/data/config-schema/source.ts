@@ -1,7 +1,8 @@
-// Schema-as-code metadata for source_configs entities. The SchemaForm
-// component renders a form from this; adding a column to the
-// config.source_configs table is two steps: a migration adding the column,
-// and a new entry here.
+// Schema-as-code metadata for config.sources. Drives the source detail
+// editor (Phase 4) and the Add Data wizard's step 1.
+//
+// Adding a column to config.sources is two steps: a migration adding
+// the column, and a new entry here.
 
 import type { EntitySchema, FormState } from "../../components/schema-form/types";
 
@@ -71,23 +72,50 @@ export const sourceConfigSchema: EntitySchema = {
     description: "Free-form notes on this source.",
     rows: 2,
   },
-  data_type: {
+};
+
+const ANCESTRY_OPTIONS = [
+  { value: "EUR", label: "European" },
+  { value: "AFR", label: "African" },
+  { value: "EAS", label: "East Asian" },
+  { value: "SAS", label: "South Asian" },
+  { value: "AMR", label: "Admixed American" },
+  { value: "MIXED", label: "Mixed / multi-ancestry" },
+  { value: "OTHER", label: "Other" },
+];
+
+/** Citation metadata schema — populated for sources whose derivations
+ *  include a `role=loci_definition`. 1:1 with config.source_citation. */
+export const sourceCitationSchema: EntitySchema = {
+  gwas_source: {
     type: "string",
-    label: "Data type / category",
-    description: "Optional tag used in the source list filter.",
-    placeholder: "e.g. PHEWAS, eQTL, FUNC",
+    label: "GWAS source",
+    description: "Citation string (e.g. 'Shrine et al. 2023').",
+    placeholder: "Shrine et al. 2023",
   },
-  gene_column: {
+  ancestry: {
+    type: "enum",
+    label: "Ancestry",
+    options: [{ value: "", label: "—" }, ...ANCESTRY_OPTIONS],
+  },
+  sample_size: {
+    type: "int",
+    label: "Sample size",
+    min: 0,
+  },
+  doi: {
     type: "string",
-    label: "Gene column",
-    description:
-      "Column in the raw data that holds the gene symbol (used as a fallback when no evidence_block specifies one).",
+    label: "DOI",
+    placeholder: "10.1038/…",
   },
-  include_in_search: {
-    type: "boolean",
-    label: "Include in gene search",
-    description:
-      "Whether genes from this source contribute to the global gene_search_index.",
-    default: true,
+  year: {
+    type: "int",
+    label: "Year",
+    min: 1900,
+    max: 2100,
+  },
+  pubmed_id: {
+    type: "string",
+    label: "PubMed ID",
   },
 };
