@@ -538,6 +538,7 @@ function DerivationsSection({
               centric: patch.centric!,
               trait_scope: patch.trait_scope!,
               mappings: patch.mappings,
+              transforms: patch.transforms,
               trait_ids: patch.trait_ids,
               trait_column: patch.trait_column ?? undefined,
             });

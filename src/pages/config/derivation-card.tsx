@@ -86,56 +86,56 @@ export function DerivationCard({
 
   return (
     <div className="border border-base-300 rounded-lg bg-base-100">
-      <button
-        type="button"
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-base-200/40 transition-colors"
-        onClick={() => setExpanded(!expanded)}
-      >
-        {expanded ? (
-          <ChevronDown className="size-3.5 text-base-content/30 shrink-0" />
-        ) : (
-          <ChevronRight className="size-3.5 text-base-content/30 shrink-0" />
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">
-              {derivation.display_name ?? `${derivation.evidence_category} evidence`}
-            </span>
-            <span className="badge badge-xs badge-outline">
-              {derivation.evidence_category}
-            </span>
-            {derivation.role === "loci_definition" && (
-              <span className="badge badge-xs badge-warning">loci</span>
-            )}
-            <span className="text-[10px] text-base-content/40 uppercase">
-              {derivation.centric}-centric
-            </span>
+      <div className="flex items-center">
+        <button
+          type="button"
+          className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-base-200/40 transition-colors"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? (
+            <ChevronDown className="size-3.5 text-base-content/30 shrink-0" />
+          ) : (
+            <ChevronRight className="size-3.5 text-base-content/30 shrink-0" />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm">
+                {derivation.display_name ??
+                  `${derivation.evidence_category} evidence`}
+              </span>
+              <span className="badge badge-xs badge-outline">
+                {derivation.evidence_category}
+              </span>
+              {derivation.role === "loci_definition" && (
+                <span className="badge badge-xs badge-warning">loci</span>
+              )}
+              <span className="text-[10px] text-base-content/40 uppercase">
+                {derivation.centric}-centric
+              </span>
+            </div>
+            <div className="text-xs text-base-content/50 mt-0.5">
+              <code className="font-mono">{derivation.source_tag}</code>
+              <span className="ml-2">
+                {derivation.trait_scope === "constant"
+                  ? `${derivation.trait_ids?.length ?? 0} constant trait${
+                      derivation.trait_ids?.length === 1 ? "" : "s"
+                    }`
+                  : `per-row from ${derivation.trait_column?.raw_column ?? "?"}`}
+              </span>
+              <span className="ml-2">
+                {derivation.mappings?.length ?? 0} mappings
+              </span>
+              <span className="ml-2">
+                {derivation.transforms?.length ?? 0} transforms
+              </span>
+            </div>
           </div>
-          <div className="text-xs text-base-content/50 mt-0.5">
-            <code className="font-mono">{derivation.source_tag}</code>
-            <span className="ml-2">
-              {derivation.trait_scope === "constant"
-                ? `${derivation.trait_ids?.length ?? 0} constant trait${
-                    derivation.trait_ids?.length === 1 ? "" : "s"
-                  }`
-                : `per-row from ${derivation.trait_column?.raw_column ?? "?"}`}
-            </span>
-            <span className="ml-2">
-              {derivation.mappings?.length ?? 0} mappings
-            </span>
-            <span className="ml-2">
-              {derivation.transforms?.length ?? 0} transforms
-            </span>
-          </div>
-        </div>
-        <span className="flex items-center gap-1">
+        </button>
+        <div className="flex items-center gap-1 pr-3 shrink-0">
           <button
             type="button"
             className="btn btn-ghost btn-xs gap-1"
-            onClick={(e) => {
-              e.stopPropagation();
-              setEditing(true);
-            }}
+            onClick={() => setEditing(true)}
           >
             <Pencil className="size-3" />
             Edit
@@ -145,16 +145,13 @@ export function DerivationCard({
               type="button"
               className="btn btn-ghost btn-xs text-error gap-1"
               title="Remove derivation"
-              onClick={(e) => {
-                e.stopPropagation();
-                void onRemove();
-              }}
+              onClick={() => void onRemove()}
             >
               <Trash2 className="size-3" />
             </button>
           )}
-        </span>
-      </button>
+        </div>
+      </div>
       {expanded && (
         <div className="border-t border-base-300 px-4 py-3 text-xs text-base-content/60 space-y-2">
           <DerivationSummary derivation={derivation} />
