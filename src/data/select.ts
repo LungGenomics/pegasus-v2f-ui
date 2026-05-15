@@ -116,25 +116,32 @@ export function initDataSource(): Promise<DataSourceState> {
 }
 
 export async function attachDuckDBFile(file: File): Promise<void> {
+  const log = (msg: string) => console.info(`[attachFile] ${msg}`);
   // Tear down any existing DuckDB instance first — the worker holds an
   // exclusive sync access handle on the OPFS file, which would block our
   // createWritable() call when overwriting it with new bytes.
   const m = await import("./adapters/duckdb-wasm");
+  log("disposing prior worker");
   await m.disposeAll();
 
+  log("writing bytes to OPFS");
   await saveDuckDB(file);
   const handle = await getSavedHandle();
   if (handle) {
+    log("attaching OPFS handle");
     await m.attachOpfsHandle(handle);
   } else {
     // OPFS unavailable — fall back to in-memory attach (this session only)
+    log("OPFS unavailable; in-memory attach");
     await m.attachFile(file);
   }
   const ds = new m.DuckDBWasmDataSource();
+  log("running migrations");
   await ensureSchema(ds);
   _instance = ds;
   _state = "duckdb-wasm";
   _initPromise = null;
+  log("done — notifying listeners");
   notify();
 }
 
@@ -146,6 +153,52 @@ export async function detachDuckDB(): Promise<void> {
   _state = "none";
   _initPromise = null;
   notify();
+}
+
+// Base URL of the R2 bucket hosting the shared DB. Overridable via a
+// VITE_SHARED_DB_BASE build env var; falls back to the lab's r2.dev
+// dev URL. `import.meta.env` isn't typed for custom keys, so cast.
+const SHARED_DB_BASE = (
+  (import.meta.env as Record<string, string | undefined>)
+    .VITE_SHARED_DB_BASE ??
+  "https://pub-3dbe6972d0bd4328a532eba3d5fa449d.r2.dev"
+).replace(/\/+$/, "");
+
+// Phase A of the R2 sync plan: read-only "load shared database".
+// Fetches the pointer (latest.json) → the DB object it names → clones
+// the bytes into OPFS and attaches via the normal file path. The
+// migration runner is idempotent, so a CLI-built gene.duckdb that
+// predates the redesigned config.* schema gets it applied on attach.
+export async function loadSharedDuckDB(): Promise<void> {
+  const log = (m: string) => console.info(`[loadShared] ${m}`);
+  log("fetching latest.json");
+  const ptrRes = await fetch(`${SHARED_DB_BASE}/latest.json`, {
+    cache: "no-store",
+  });
+  if (!ptrRes.ok) {
+    throw new Error(
+      `Couldn't fetch shared DB pointer (${ptrRes.status} ${ptrRes.statusText})`,
+    );
+  }
+  const ptr = (await ptrRes.json()) as { current_key?: string };
+  if (!ptr.current_key) {
+    throw new Error("latest.json is missing a current_key field");
+  }
+  log(`pointer → ${ptr.current_key}; fetching DB bytes`);
+  const dbRes = await fetch(`${SHARED_DB_BASE}/${ptr.current_key}`);
+  if (!dbRes.ok) {
+    throw new Error(
+      `Couldn't fetch shared DB '${ptr.current_key}' (${dbRes.status} ${dbRes.statusText})`,
+    );
+  }
+  const buf = await dbRes.arrayBuffer();
+  log(`fetched ${buf.byteLength} bytes; wrapping as File`);
+  const file = new File([buf], "shared.duckdb", {
+    type: "application/octet-stream",
+  });
+  log("attaching via attachDuckDBFile");
+  await attachDuckDBFile(file);
+  log("done");
 }
 
 // Spin up a fresh empty DuckDB and persist it to OPFS. Two phases:

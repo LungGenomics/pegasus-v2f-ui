@@ -1,7 +1,11 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Upload, Database, HardDrive, Zap, Plus } from "lucide-react";
-import { attachDuckDBFile, createNewDuckDB } from "../data/select";
+import { Upload, Database, HardDrive, Zap, Plus, Cloud } from "lucide-react";
+import {
+  attachDuckDBFile,
+  createNewDuckDB,
+  loadSharedDuckDB,
+} from "../data/select";
 
 export function SplashPage() {
   const [busy, setBusy] = useState(false);
@@ -64,6 +68,23 @@ export function SplashPage() {
     }
   };
 
+  const onLoadShared = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await loadSharedDuckDB();
+      await queryClient.invalidateQueries();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load the shared database",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-base-200 flex items-center justify-center px-6 py-12">
       <div className="max-w-2xl w-full">
@@ -108,8 +129,18 @@ export function SplashPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-3 mt-4 text-sm text-base-content/60">
+        <div className="flex items-center justify-center gap-4 mt-4 text-sm text-base-content/60">
           <span>or</span>
+          <button
+            type="button"
+            onClick={onLoadShared}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 text-primary hover:text-primary/80 disabled:opacity-50"
+          >
+            <Cloud className="size-3.5" />
+            Load shared database
+          </button>
+          <span className="text-base-content/30">·</span>
           <button
             type="button"
             onClick={onCreateNew}
