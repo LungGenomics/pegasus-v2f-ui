@@ -8,7 +8,12 @@
 // `last_enriched_at` timestamp marks whichever stages we attempted.
 
 import { getTrait, upsertTrait } from "../traitOps";
-import { fetchAncestors, fetchTermDetails, inferTraitKind } from "./ols";
+import {
+  fetchAncestors,
+  fetchTermDetails,
+  inferTraitKind,
+  search as olsSearch,
+} from "./ols";
 import { fetchMappings } from "./oxo";
 import { fetchDiseaseEnrichment } from "./opentargets";
 import type { ConfigTrait } from "../../api/types";
@@ -150,6 +155,73 @@ export async function enrichTraits(
     out.push(await enrichTrait(id));
     // Throttle: ~1 trait per second when Stage 2 runs.
     await new Promise((r) => setTimeout(r, 1000));
+  }
+  return out;
+}
+
+export interface ResolveResult {
+  trait_id: string;
+  label: string;
+  /** "resolved" — an exact-match ontology term was assigned;
+   *  "no_match" — OLS returned nothing exact, left unmapped;
+   *  "already_mapped" — skipped, had a mapping already. */
+  status: "resolved" | "no_match" | "already_mapped";
+  obo_id?: string;
+  ontology?: string;
+}
+
+const normLabel = (s: string): string =>
+  s.trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Batch "Resolve unmapped": for each trait with no ontology mapping,
+ *  search OLS by label and assign a term **only** on an exact match —
+ *  the result's label or one of its synonyms equals the trait label
+ *  (case/whitespace-insensitive). Ambiguous traits stay unmapped for
+ *  manual mapping in the detail panel. Conservative by design: a wrong
+ *  auto-mapping is worse than none. Does not enrich; callers can run
+ *  enrichTraits afterward on the newly-resolved ids. */
+export async function resolveUnmappedTraits(
+  traitIds: string[],
+): Promise<ResolveResult[]> {
+  const out: ResolveResult[] = [];
+  for (const id of traitIds) {
+    const trait = await getTrait(id);
+    if (!trait) continue;
+    if (trait.primary_ontology_id) {
+      out.push({
+        trait_id: id,
+        label: trait.label,
+        status: "already_mapped",
+      });
+      continue;
+    }
+    const want = normLabel(trait.label);
+    const results = await olsSearch(trait.label, { rows: 8 }).catch(() => []);
+    const hit = results.find(
+      (r) =>
+        normLabel(r.label) === want ||
+        (r.synonyms ?? []).some((s) => normLabel(s) === want),
+    );
+    if (!hit) {
+      out.push({ trait_id: id, label: trait.label, status: "no_match" });
+      // OLS-only call (no OT) — lighter, shorter throttle.
+      await new Promise((r) => setTimeout(r, 300));
+      continue;
+    }
+    await upsertTrait({
+      label: trait.label,
+      primary_ontology: hit.ontology,
+      primary_ontology_id: hit.obo_id,
+      ontology_label: hit.label,
+    });
+    out.push({
+      trait_id: id,
+      label: trait.label,
+      status: "resolved",
+      obo_id: hit.obo_id,
+      ontology: hit.ontology,
+    });
+    await new Promise((r) => setTimeout(r, 300));
   }
   return out;
 }

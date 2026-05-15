@@ -7,8 +7,12 @@
 
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, Trash2, Loader2 } from "lucide-react";
+import { Search, Trash2, Loader2, Sparkles, RefreshCw } from "lucide-react";
 import { listTraits, pruneJunkTraits } from "../../data/traitOps";
+import {
+  resolveUnmappedTraits,
+  enrichTraits,
+} from "../../data/ontology/enrich";
 import type { ConfigTrait } from "../../api/types";
 
 type Filter = "all" | "mapped" | "unmapped";
@@ -29,29 +33,10 @@ export function TraitsList({
   const traitsQ = useQuery({ queryKey: ["config", "traits"], queryFn: listTraits });
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [pruning, setPruning] = useState(false);
-  const [pruneMsg, setPruneMsg] = useState<string | null>(null);
-
-  const prune = async () => {
-    setPruneMsg(null);
-    setPruning(true);
-    try {
-      const removed = await pruneJunkTraits();
-      setPruneMsg(
-        removed === 0
-          ? "No junk traits to prune."
-          : `Pruned ${removed} unreferenced, unmapped trait${removed === 1 ? "" : "s"}.`,
-      );
-      await qc.invalidateQueries({ queryKey: ["config", "traits"] });
-      await traitsQ.refetch();
-    } catch (err) {
-      setPruneMsg(
-        `Prune failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      setPruning(false);
-    }
-  };
+  const [busy, setBusy] = useState<null | "prune" | "resolve" | "enrich">(
+    null,
+  );
+  const [msg, setMsg] = useState<string | null>(null);
 
   const traits = traitsQ.data ?? [];
 
@@ -70,6 +55,59 @@ export function TraitsList({
   }, [traits, query, filter]);
 
   const mappedCount = traits.filter((t) => t.primary_ontology_id).length;
+
+  // Batch actions operate on the *currently filtered* set, so the
+  // all/mapped/unmapped tabs + search double as scope selectors.
+  const unmappedInView = filtered.filter((t) => !t.primary_ontology_id);
+  const mappedInView = filtered.filter((t) => t.primary_ontology_id);
+
+  const runBatch = async (
+    kind: "prune" | "resolve" | "enrich",
+    fn: () => Promise<string>,
+  ) => {
+    setMsg(null);
+    setBusy(kind);
+    try {
+      setMsg(await fn());
+      await qc.invalidateQueries({ queryKey: ["config", "traits"] });
+      await traitsQ.refetch();
+    } catch (err) {
+      setMsg(
+        `${kind} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const prune = () =>
+    runBatch("prune", async () => {
+      const removed = await pruneJunkTraits();
+      return removed === 0
+        ? "No junk traits to prune."
+        : `Pruned ${removed} unreferenced, unmapped trait${removed === 1 ? "" : "s"}.`;
+    });
+
+  const resolve = () =>
+    runBatch("resolve", async () => {
+      const res = await resolveUnmappedTraits(
+        unmappedInView.map((t) => t.id),
+      );
+      const ok = res.filter((r) => r.status === "resolved").length;
+      const none = res.filter((r) => r.status === "no_match").length;
+      return `Resolved ${ok} of ${res.length} unmapped (exact ontology match); ${none} left for manual mapping.`;
+    });
+
+  const refreshEnrichment = () =>
+    runBatch("enrich", async () => {
+      const res = await enrichTraits(
+        mappedInView.map((t) => t.id),
+        { force: true },
+      );
+      const s1 = res.filter((r) => r.stage1_ok).length;
+      const s2 = res.filter((r) => r.stage2_ok).length;
+      return `Enriched ${res.length} mapped trait${res.length === 1 ? "" : "s"} — ${s1} core, ${s2} with OpenTargets disease data.`;
+    });
 
   return (
     <div>
@@ -105,12 +143,40 @@ export function TraitsList({
         </label>
         <button
           type="button"
+          className="btn btn-xs btn-ghost gap-1"
+          onClick={() => void resolve()}
+          disabled={busy !== null || unmappedInView.length === 0}
+          title="Auto-map unmapped traits in view to ontology terms on an exact label match (OLS)"
+        >
+          {busy === "resolve" ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <Sparkles className="size-3" />
+          )}
+          Resolve unmapped ({unmappedInView.length})
+        </button>
+        <button
+          type="button"
+          className="btn btn-xs btn-ghost gap-1"
+          onClick={() => void refreshEnrichment()}
+          disabled={busy !== null || mappedInView.length === 0}
+          title="Re-pull description / hierarchy / OpenTargets data for mapped traits in view"
+        >
+          {busy === "enrich" ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <RefreshCw className="size-3" />
+          )}
+          Refresh enrichment ({mappedInView.length})
+        </button>
+        <button
+          type="button"
           className="btn btn-xs btn-ghost text-error gap-1"
           onClick={() => void prune()}
-          disabled={pruning}
+          disabled={busy !== null}
           title="Delete unreferenced, unmapped traits (junk from bad builds)"
         >
-          {pruning ? (
+          {busy === "prune" ? (
             <Loader2 className="size-3 animate-spin" />
           ) : (
             <Trash2 className="size-3" />
@@ -119,12 +185,9 @@ export function TraitsList({
         </button>
       </div>
 
-      {pruneMsg && (
-        <div
-          role="status"
-          className="alert alert-info text-sm mb-4 py-2"
-        >
-          <span>{pruneMsg}</span>
+      {msg && (
+        <div role="status" className="alert alert-info text-sm mb-4 py-2">
+          <span>{msg}</span>
         </div>
       )}
 
