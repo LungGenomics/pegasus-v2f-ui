@@ -66,6 +66,45 @@ const MAIN_EVIDENCE_DDL = `CREATE TABLE IF NOT EXISTS main.evidence (
   evidence_stream    VARCHAR
 )`;
 
+// Column spec mirroring MAIN_EVIDENCE_DDL. A CLI-built gene.duckdb
+// already has a main.evidence with the *legacy* shape (no role /
+// source_id / derivation_id / trait_id), and CREATE TABLE IF NOT
+// EXISTS no-ops on it — so we additionally ALTER ADD COLUMN IF NOT
+// EXISTS each column. Idempotent, non-destructive (keeps existing
+// rows), brings an old table up to the redesign shape.
+const EVIDENCE_COLUMNS: Array<[string, string]> = [
+  ["source_tag", "VARCHAR"],
+  ["evidence_category", "VARCHAR"],
+  ["role", "VARCHAR"],
+  ["source_id", "UUID"],
+  ["derivation_id", "UUID"],
+  ["gene_symbol", "VARCHAR"],
+  ["chromosome", "VARCHAR"],
+  ["position", "BIGINT"],
+  ["rsid", "VARCHAR"],
+  ["trait", "VARCHAR"],
+  ["trait_id", "UUID"],
+  ["pvalue", "DOUBLE"],
+  ["effect_size", "DOUBLE"],
+  ["score", "DOUBLE"],
+  ["tissue", "VARCHAR"],
+  ["cell_type", "VARCHAR"],
+  ["ancestry", "VARCHAR"],
+  ["sex", "VARCHAR"],
+  ["evidence_stream", "VARCHAR"],
+];
+
+async function ensureEvidenceSchema(
+  ds: ReturnType<typeof getDataSource>,
+): Promise<void> {
+  await ds.exec({ sql: MAIN_EVIDENCE_DDL });
+  for (const [col, type] of EVIDENCE_COLUMNS) {
+    await ds.exec({
+      sql: `ALTER TABLE main.evidence ADD COLUMN IF NOT EXISTS ${col} ${type}`,
+    });
+  }
+}
+
 export interface RouteResult {
   derivation_id: string;
   source_tag: string;
@@ -81,7 +120,7 @@ export async function routeDerivation(
   derivation: ConfigDerivation,
 ): Promise<RouteResult> {
   const ds = getDataSource();
-  await ds.exec({ sql: MAIN_EVIDENCE_DDL });
+  await ensureEvidenceSchema(ds);
 
   // Resolve mappings into a flat record { canonical_field → raw_column }.
   // Drop entries whose canonical field isn't a known evidence column.
@@ -112,9 +151,12 @@ export async function routeDerivation(
     type: t.type,
     ...(t.params ?? {}),
   }));
+  // Pass a full SELECT (not a bare table ref): compileTransformPipeline
+  // with sourceIsSql wraps the source in parens, and DuckDB only allows
+  // parens around a subquery, not a plain `schema."table"`.
   const transformedSql = compileTransformPipeline(
     transformEntries,
-    `main.${ident(rawTableName(source.id))}`,
+    `SELECT * FROM main.${ident(rawTableName(source.id))}`,
     { sourceIsSql: true },
   );
 

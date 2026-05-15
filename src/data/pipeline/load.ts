@@ -147,19 +147,11 @@ export async function loadRawSource(source: ConfigSource): Promise<LoadResult> {
   const fetched = await fetchAndPrepare(source);
   const tableName = rawTableName(source.id);
 
-  // The adapter exposes registerSourceBytes (see duckdb-wasm.ts) for
-  // registering a virtual file under a chosen filename. Cast to the
-  // adapter shape; the legacy DataSource interface doesn't surface it.
-  type RegisterCapable = {
-    registerSourceBytes?: (name: string, bytes: Uint8Array) => Promise<void>;
-    dropRegisteredFile?: (name: string) => Promise<void>;
-  };
-  const adapter = ds as unknown as RegisterCapable;
-  if (typeof adapter.registerSourceBytes !== "function") {
-    throw new Error(
-      "Active DataSource doesn't support virtual file registration; raw load requires the DuckDB-WASM adapter.",
-    );
-  }
+  // registerSourceBytes / dropRegisteredFile are module-level exports of
+  // the DuckDB-WASM adapter, not methods on the DataSource instance.
+  // Import the module the same way select.ts does.
+  const adapter = await import("../adapters/duckdb-wasm");
+
   await adapter.registerSourceBytes(fetched.registerAs, fetched.bytes);
   try {
     await ds.exec({
@@ -175,8 +167,6 @@ export async function loadRawSource(source: ConfigSource): Promise<LoadResult> {
       rows: Number(count?.n ?? 0),
     };
   } finally {
-    if (typeof adapter.dropRegisteredFile === "function") {
-      await adapter.dropRegisteredFile(fetched.registerAs).catch(() => {});
-    }
+    await adapter.dropRegisteredFile(fetched.registerAs).catch(() => {});
   }
 }

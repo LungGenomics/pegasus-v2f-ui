@@ -31,6 +31,37 @@ const MAIN_LOCI_DDL = `CREATE TABLE IF NOT EXISTS main.loci (
   n_candidate_genes  INTEGER
 )`;
 
+// A CLI-built gene.duckdb already has main.loci with the legacy shape
+// (study_id, no loci_source_id / loci_derivation_id / source_tag /
+// lead_position). CREATE TABLE IF NOT EXISTS no-ops on it, so ALTER
+// ADD COLUMN IF NOT EXISTS each column too — idempotent, keeps rows.
+const LOCI_COLUMNS: Array<[string, string]> = [
+  ["loci_source_id", "UUID"],
+  ["loci_derivation_id", "UUID"],
+  ["source_tag", "VARCHAR"],
+  ["locus_name", "VARCHAR"],
+  ["chromosome", "VARCHAR"],
+  ["start_position", "BIGINT"],
+  ["end_position", "BIGINT"],
+  ["lead_variant_id", "VARCHAR"],
+  ["lead_rsid", "VARCHAR"],
+  ["lead_pvalue", "DOUBLE"],
+  ["lead_position", "BIGINT"],
+  ["n_signals", "INTEGER"],
+  ["n_candidate_genes", "INTEGER"],
+];
+
+async function ensureLociSchema(
+  ds: ReturnType<typeof getDataSource>,
+): Promise<void> {
+  await ds.exec({ sql: MAIN_LOCI_DDL });
+  for (const [col, type] of LOCI_COLUMNS) {
+    await ds.exec({
+      sql: `ALTER TABLE main.loci ADD COLUMN IF NOT EXISTS ${col} ${type}`,
+    });
+  }
+}
+
 export interface DeriveLociResult {
   derivation_id: string;
   source_tag: string;
@@ -52,7 +83,7 @@ export async function deriveLoci(
     };
   }
   const ds = getDataSource();
-  await ds.exec({ sql: MAIN_LOCI_DDL });
+  await ensureLociSchema(ds);
 
   // Pull window + merge distances from settings.
   const [settings] = await ds.query<{

@@ -41,6 +41,44 @@ const MAIN_SCORED_DDL = `CREATE TABLE IF NOT EXISTS main.scored_evidence (
   n_candidate_genes  INTEGER
 )`;
 
+// CLI-built gene.duckdb may already have main.scored_evidence with the
+// legacy shape (study_id, no loci_source_id / loci_derivation_id /
+// trait_id). CREATE TABLE IF NOT EXISTS no-ops, so ALTER ADD COLUMN
+// IF NOT EXISTS each column — idempotent, non-destructive.
+const SCORED_COLUMNS: Array<[string, string]> = [
+  ["locus_id", "VARCHAR"],
+  ["loci_source_id", "UUID"],
+  ["loci_derivation_id", "UUID"],
+  ["gene_symbol", "VARCHAR"],
+  ["evidence_category", "VARCHAR"],
+  ["source_tag", "VARCHAR"],
+  ["trait", "VARCHAR"],
+  ["trait_id", "UUID"],
+  ["pvalue", "DOUBLE"],
+  ["effect_size", "DOUBLE"],
+  ["score", "DOUBLE"],
+  ["tissue", "VARCHAR"],
+  ["cell_type", "VARCHAR"],
+  ["rsid", "VARCHAR"],
+  ["ancestry", "VARCHAR"],
+  ["sex", "VARCHAR"],
+  ["match_type", "VARCHAR"],
+  ["integration_rank", "INTEGER"],
+  ["is_predicted_effector", "BOOLEAN"],
+  ["n_candidate_genes", "INTEGER"],
+];
+
+async function ensureScoredSchema(
+  ds: ReturnType<typeof getDataSource>,
+): Promise<void> {
+  await ds.exec({ sql: MAIN_SCORED_DDL });
+  for (const [col, type] of SCORED_COLUMNS) {
+    await ds.exec({
+      sql: `ALTER TABLE main.scored_evidence ADD COLUMN IF NOT EXISTS ${col} ${type}`,
+    });
+  }
+}
+
 const STAGING = {
   candidates: "main._matr_candidates",
   variantEv: "main._matr_variant_ev",
@@ -57,7 +95,7 @@ export type MaterializeResult = {
 
 export async function materializeScoredEvidence(): Promise<MaterializeResult> {
   const ds = getDataSource();
-  await ds.exec({ sql: MAIN_SCORED_DDL });
+  await ensureScoredSchema(ds);
 
   // 0. Sanity: required upstream tables exist. scored_evidence is
   // created above if missing; loci/evidence are populated by the
