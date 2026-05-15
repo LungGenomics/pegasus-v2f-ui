@@ -247,3 +247,70 @@ export async function removeTrait(id: string): Promise<void> {
     params: [id],
   });
 }
+
+export interface TraitUsage {
+  /** Sources that declared this trait (config.source_traits). */
+  sources: Array<{ name: string; display_name: string | null }>;
+  /** Derivations that carry this trait constantly
+   *  (config.derivation_traits). Per-row column-scope derivations
+   *  resolve traits by label at build time and aren't listed here. */
+  derivations: Array<{ source_tag: string; evidence_category: string }>;
+}
+
+/** Where a trait is referenced across config — drives the "Used by"
+ *  section of the trait detail panel. */
+export async function getTraitUsage(traitId: string): Promise<TraitUsage> {
+  const ds = getDataSource();
+  const [sources, derivations] = await Promise.all([
+    ds.query<{ name: string; display_name: string | null }>({
+      sql:
+        "SELECT s.name, s.display_name " +
+        "FROM config.source_traits st " +
+        "JOIN config.sources s ON s.id = st.source_id " +
+        "WHERE st.trait_id = ? ORDER BY s.name",
+      params: [traitId],
+    }),
+    ds.query<{ source_tag: string; evidence_category: string }>({
+      sql:
+        "SELECT d.source_tag, d.evidence_category " +
+        "FROM config.derivation_traits dt " +
+        "JOIN config.derivations d ON d.id = dt.derivation_id " +
+        "WHERE dt.trait_id = ? ORDER BY d.source_tag",
+      params: [traitId],
+    }),
+  ]);
+  return { sources, derivations };
+}
+
+/** Delete junk traits: unmapped (no ontology) AND referenced by
+ *  nothing — not declared on a source, not a constant on a derivation,
+ *  not present in main.evidence, and not a parent of another trait.
+ *
+ *  Mapped traits (primary_ontology_id set) are spared even when
+ *  unreferenced, since those were deliberately picked via OLS and may
+ *  just not be attached to a source yet. NOT EXISTS (not NOT IN) so
+ *  NULLs don't suppress the whole predicate. Returns the count removed. */
+export async function pruneJunkTraits(): Promise<number> {
+  const ds = getDataSource();
+  const { tableExists } = await import("./select");
+  const evidenceClause = (await tableExists("evidence"))
+    ? "AND NOT EXISTS (SELECT 1 FROM main.evidence e WHERE e.trait_id = t.id) "
+    : "";
+  const where =
+    "t.primary_ontology_id IS NULL " +
+    "AND NOT EXISTS (SELECT 1 FROM config.source_traits st WHERE st.trait_id = t.id) " +
+    "AND NOT EXISTS (SELECT 1 FROM config.derivation_traits dt WHERE dt.trait_id = t.id) " +
+    "AND NOT EXISTS (SELECT 1 FROM config.traits c WHERE c.parent_trait_id = t.id) " +
+    evidenceClause;
+
+  const [{ n } = { n: 0 }] = await ds.query<{ n: number }>({
+    sql: `SELECT COUNT(*) AS n FROM config.traits t WHERE ${where}`,
+  });
+  const count = Number(n);
+  if (count > 0) {
+    await ds.exec({
+      sql: `DELETE FROM config.traits AS t WHERE ${where}`,
+    });
+  }
+  return count;
+}

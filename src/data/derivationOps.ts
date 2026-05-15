@@ -277,11 +277,24 @@ export async function updateDerivation(
   patch: UpdateDerivationPatch,
 ): Promise<void> {
   const ds = getDataSource();
-  const existing = await ds.query<{ id: string }>({
-    sql: "SELECT id FROM config.derivations WHERE id = ? LIMIT 1",
-    params: [id],
-  });
-  if (!existing[0]) throw new Error(`Derivation ${id} not found`);
+  // Load the full current derivation so we can merge the partial patch
+  // and rewrite the complete child set. Needed because DuckDB rejects
+  // UPDATE on a row still referenced by FK children (a documented FK
+  // limitation) even when the referenced key is unchanged — so we must
+  // clear ALL children before the parent UPDATE, then reinsert them,
+  // which means knowing the child types the patch didn't touch.
+  const current = await getDerivation(id);
+  if (!current) throw new Error(`Derivation ${id} not found`);
+
+  const effective = {
+    mappings: patch.mappings ?? current.mappings ?? [],
+    transforms: patch.transforms ?? current.transforms ?? [],
+    trait_ids: patch.trait_ids ?? current.trait_ids ?? [],
+    trait_column:
+      "trait_column" in patch
+        ? patch.trait_column ?? null
+        : current.trait_column ?? null,
+  };
 
   const sets: string[] = [];
   const params: unknown[] = [];
@@ -298,6 +311,11 @@ export async function updateDerivation(
   if ("centric" in patch) addSet("centric", patch.centric);
   if ("trait_scope" in patch) addSet("trait_scope", patch.trait_scope);
 
+  // 1. Clear every child — no rows reference config.derivations(id)
+  //    afterwards, so the parent UPDATE's FK check passes.
+  await deleteAllDerivationChildren(id);
+
+  // 2. Update the parent row.
   if (sets.length > 0) {
     sets.push("row_version = row_version + 1");
     sets.push("updated_at = now()");
@@ -308,7 +326,76 @@ export async function updateDerivation(
     });
   }
 
-  await replaceChildren(id, patch);
+  // 3. Reinsert the full merged child set.
+  await insertDerivationChildren(id, effective);
+}
+
+async function deleteAllDerivationChildren(id: string): Promise<void> {
+  const ds = getDataSource();
+  await ds.exec({
+    sql: "DELETE FROM config.derivation_mappings WHERE derivation_id = ?",
+    params: [id],
+  });
+  await ds.exec({
+    sql: "DELETE FROM config.derivation_transforms WHERE derivation_id = ?",
+    params: [id],
+  });
+  await ds.exec({
+    sql: "DELETE FROM config.derivation_traits WHERE derivation_id = ?",
+    params: [id],
+  });
+  await ds.exec({
+    sql: "DELETE FROM config.derivation_trait_column WHERE derivation_id = ?",
+    params: [id],
+  });
+}
+
+async function insertDerivationChildren(
+  derivationId: string,
+  c: {
+    mappings: DerivationMapping[];
+    transforms: DerivationTransform[];
+    trait_ids: string[];
+    trait_column: DerivationTraitColumn | null;
+  },
+): Promise<void> {
+  const ds = getDataSource();
+  for (const m of c.mappings) {
+    await ds.exec({
+      sql:
+        "INSERT INTO config.derivation_mappings " +
+        "  (derivation_id, canonical_field, raw_column) VALUES (?, ?, ?)",
+      params: [derivationId, m.canonical_field, m.raw_column],
+    });
+  }
+  for (const t of c.transforms) {
+    await ds.exec({
+      sql:
+        "INSERT INTO config.derivation_transforms " +
+        "  (derivation_id, seq, type, params) VALUES (?, ?, ?, ?)",
+      params: [derivationId, t.seq, t.type, JSON.stringify(t.params ?? {})],
+    });
+  }
+  for (const traitId of c.trait_ids) {
+    await ds.exec({
+      sql:
+        "INSERT INTO config.derivation_traits (derivation_id, trait_id) " +
+        "VALUES (?, ?) ON CONFLICT DO NOTHING",
+      params: [derivationId, traitId],
+    });
+  }
+  if (c.trait_column) {
+    await ds.exec({
+      sql:
+        "INSERT INTO config.derivation_trait_column " +
+        "  (derivation_id, raw_column, trait_id_lookup) VALUES (?, ?, ?)",
+      params: [
+        derivationId,
+        c.trait_column.raw_column,
+        c.trait_column.trait_id_lookup ?? null,
+      ],
+    });
+  }
 }
 
 async function replaceChildren(

@@ -11,6 +11,8 @@ import { Plus, Database, FlaskConical, ArrowLeft } from "lucide-react";
 import { listSources } from "../../data/sourceOps";
 import { AddDataWizard } from "./add-data-wizard";
 import { SourceDetailEditor } from "./source-detail";
+import { TraitsList } from "./traits-list";
+import { TraitDetailPanel } from "./trait-detail";
 
 export function ConfigWorkspace() {
   const [params, setParams] = useSearchParams();
@@ -22,11 +24,22 @@ export function ConfigWorkspace() {
     queryFn: listSources,
   });
 
+  const selectedTrait = params.get("trait");
+
   if (selectedSource) {
     return (
       <SourceDetailEditor
         sourceName={selectedSource}
         onBack={() => setParams({})}
+      />
+    );
+  }
+
+  if (selectedTrait) {
+    return (
+      <TraitDetailPanel
+        traitId={selectedTrait}
+        onBack={() => setParams({ view: "traits" })}
       />
     );
   }
@@ -56,7 +69,63 @@ export function ConfigWorkspace() {
   }
 
   const sources = sourcesQ.data ?? [];
+  const view = params.get("view") === "traits" ? "traits" : "sources";
+  const setView = (v: "sources" | "traits") =>
+    setParams(v === "sources" ? {} : { view: "traits" });
 
+  return (
+    <div>
+      {/* Tab header (Sources | Traits) — list views only; source detail
+          and the wizard are drill-ins handled by the early returns. */}
+      <div className="flex items-center gap-1 mb-4 border-b border-base-300">
+        {(["sources", "traits"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            className={`px-3 py-2 text-sm capitalize border-b-2 -mb-px ${
+              view === v
+                ? "border-primary text-base-content font-medium"
+                : "border-transparent text-base-content/50 hover:text-base-content"
+            }`}
+            onClick={() => setView(v)}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+
+      {view === "traits" ? (
+        <div>
+          <div className="flex items-baseline gap-3 mb-4">
+            <h1 className="text-lg font-semibold">Traits</h1>
+          </div>
+          <TraitsList
+            onSelect={(traitId) => setParams({ view: "traits", trait: traitId })}
+          />
+        </div>
+      ) : (
+        <SourcesTab
+          sources={sources}
+          loading={sourcesQ.isLoading}
+          onAdd={() => setAdding(true)}
+          onOpen={(name) => setParams({ source: name })}
+        />
+      )}
+    </div>
+  );
+}
+
+function SourcesTab({
+  sources,
+  loading,
+  onAdd,
+  onOpen,
+}: {
+  sources: import("../../api/types").ConfigSource[];
+  loading: boolean;
+  onAdd: () => void;
+  onOpen: (name: string) => void;
+}) {
   return (
     <div>
       <div className="flex items-baseline gap-3 mb-4">
@@ -67,7 +136,7 @@ export function ConfigWorkspace() {
         <div className="flex-1" />
         <button
           type="button"
-          onClick={() => setAdding(true)}
+          onClick={onAdd}
           className="btn btn-sm btn-primary gap-1"
         >
           <Plus className="size-3.5" />
@@ -75,7 +144,7 @@ export function ConfigWorkspace() {
         </button>
       </div>
 
-      {sourcesQ.isLoading ? (
+      {loading ? (
         <div className="text-base-content/40 text-sm">Loading…</div>
       ) : sources.length === 0 ? (
         <div className="border border-dashed border-base-300 rounded-lg p-8 text-center">
@@ -96,7 +165,7 @@ export function ConfigWorkspace() {
                 className={`w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-base-200/40 transition-colors ${
                   i > 0 ? "border-t border-base-300" : ""
                 }`}
-                onClick={() => setParams({ source: s.name })}
+                onClick={() => onOpen(s.name)}
               >
                 {isStudy ? (
                   <FlaskConical className="size-4 text-base-content/40" />

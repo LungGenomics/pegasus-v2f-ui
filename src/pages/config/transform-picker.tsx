@@ -30,6 +30,8 @@ function defaultConfig(type: string): TransformConfigEntry {
       return { type, column: "" };
     case "split_column":
       return { type, column: "", delimiter: ",", columns: [] };
+    case "explode_column":
+      return { type, column: "", delimiter: ",", trim: true } as TransformConfigEntry;
     case "aggregate":
       return { type, group_by: [], agg: {} };
     case "compute":
@@ -45,7 +47,7 @@ function defaultConfig(type: string): TransformConfigEntry {
 
 export function TransformPicker({ onAdd }: Props) {
   return (
-    <div className="dropdown dropdown-top dropdown-end">
+    <div className="dropdown dropdown-top">
       <div tabIndex={0} role="button" className="btn btn-sm btn-ghost gap-1">
         <Plus className="size-4" />
         Add Transform
