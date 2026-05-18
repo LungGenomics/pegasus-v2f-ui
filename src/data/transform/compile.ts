@@ -75,10 +75,14 @@ function compileDeduplicate(t: TransformConfigEntry, input: string): string {
   // Use ROW_NUMBER + filter — works on both DuckDB and Postgres without
   // requiring DISTINCT ON's strict ORDER BY semantics.
   const partition = cols.map(ident).join(", ");
+  // Deterministic "keep first by input order": capture a monotonic
+  // row id over the raw scan, then pick rn=1 ordered by it. Without an
+  // ORDER BY, ROW_NUMBER() picks an engine-arbitrary row per group
+  // (differs from the legacy first-occurrence semantics).
   return (
-    `SELECT * EXCLUDE (_dedup_rn) FROM (` +
-    `SELECT *, ROW_NUMBER() OVER (PARTITION BY ${partition}) AS _dedup_rn ` +
-    `FROM ${sub(input)}` +
+    `SELECT * EXCLUDE (_dedup_rn, _dedup_rid) FROM (` +
+    `SELECT *, ROW_NUMBER() OVER (PARTITION BY ${partition} ORDER BY _dedup_rid) AS _dedup_rn ` +
+    `FROM (SELECT *, ROW_NUMBER() OVER () AS _dedup_rid FROM ${sub(input)})` +
     `) WHERE _dedup_rn = 1`
   );
 }
@@ -132,9 +136,13 @@ function compileParseVariantId(
 ): string {
   const col = String(t.column ?? "");
   if (!col) return input;
-  // Handles formats: chr1:16979534C:A | chr3:44861942 | 10:103897116:G:A
-  // Group 1 = chromosome (digits | X | Y), group 2 = position (digits).
-  const pattern = strLit("chr?(\\d+|X|Y):(\\d+)");
+  // Handles: chr1:16979534C:A | 3:44861942 | X-100_A | 10:103897116:G:A
+  // Optional whole "chr" prefix (non-capturing), then chromosome token,
+  // then a :/-/_ separator, then position. Mirrors the legacy regex
+  // /^(?:chr)?(\w+)[:\-_](\d+)/. The previous pattern `chr?(\d+|X|Y):`
+  // meant "ch" + optional "r" (so bare "3:..." never matched) and only
+  // accepted digit/X/Y chromosomes and a ':' separator — a real bug.
+  const pattern = strLit("^(?:chr)?(\\w+)[:_-](\\d+)");
   return (
     `SELECT *, ` +
     `REGEXP_EXTRACT(${ident(col)}, ${pattern}, 1) AS ${ident("chromosome")}, ` +
