@@ -1,13 +1,23 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ArrowLeft, ChevronDown, ChevronRight, X } from "lucide-react";
-import { useProvenance, useSourceEvidence, useSourceVariants } from "../api/sources";
+import {
+  useProvenance,
+  useSourceEvidence,
+  useSourceVariants,
+  useSourceConfigByTag,
+} from "../api/sources";
 import { useChromSizes } from "../api/db";
 import { GenomeTrack, type GenomeTrackHandle } from "../components/genome-track/genome-track";
 import { GenomeScatter, type GenomeScatterHandle, type ScatterPoint } from "../components/genome-track/genome-scatter";
 import { TrackControls } from "../components/genome-track/track-controls";
 import type { TrackLocus, ViewState } from "../components/genome-track/types";
-import type { SourceProvenance, SourceEvidenceRow } from "../api/types";
+import type {
+  SourceProvenance,
+  SourceEvidenceRow,
+  ConfigSource,
+  ConfigDerivation,
+} from "../api/types";
 import { buildChromList, chromOffsets, toAbsolute } from "../lib/genome-coords";
 import { formatPvalue, formatScore } from "../lib/format";
 
@@ -164,6 +174,7 @@ function SourceDetail({
   onBack: () => void;
 }) {
   const { data, isLoading } = useSourceEvidence(sourceTag);
+  const cfgQ = useSourceConfigByTag(sourceTag);
   const chromQ = useChromSizes();
   const trackRef = useRef<GenomeTrackHandle>(null);
   const scatterRef = useRef<GenomeScatterHandle>(null);
@@ -463,6 +474,13 @@ function SourceDetail({
         )}
       </div>
 
+      {cfgQ.data?.source && (
+        <SourceConfigPanel
+          source={cfgQ.data.source}
+          derivations={cfgQ.data.derivations}
+        />
+      )}
+
       {/* Genome visualization */}
       {chromQ.data && vizMode !== "markers" && scatterPoints.length > 0 && (
         <div className="mb-2">
@@ -586,6 +604,104 @@ function SourceDetail({
           dataProfile={profile}
           selectedLocusId={selectedLocusId}
         />
+      )}
+    </div>
+  );
+}
+
+// --- Phase 7: config-side "used as" + derivations + citation ---
+
+function SourceConfigPanel({
+  source,
+  derivations,
+}: {
+  source: ConfigSource;
+  derivations: ConfigDerivation[];
+}) {
+  const roles = Array.from(new Set(derivations.map((d) => d.role)));
+  const c = source.citation;
+  const citationBits = c
+    ? [
+        c.gwas_source,
+        c.ancestry,
+        c.sample_size != null ? `N=${c.sample_size.toLocaleString()}` : null,
+        c.year != null ? String(c.year) : null,
+      ].filter(Boolean)
+    : [];
+
+  return (
+    <div className="border border-base-300 rounded-lg bg-base-100 p-3 mb-3 text-sm">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-base-content/50 text-xs uppercase tracking-wide">
+          Used as
+        </span>
+        {roles.map((r) => (
+          <span
+            key={r}
+            className={`badge badge-sm ${
+              r === "loci_definition" ? "badge-warning" : "badge-info"
+            }`}
+          >
+            {r}
+          </span>
+        ))}
+        <span className="text-base-content/40">
+          &middot; {source.display_name ?? source.name}
+        </span>
+      </div>
+
+      <div className="mt-2 divide-y divide-base-200">
+        {derivations.map((d) => (
+          <div
+            key={d.id}
+            className="py-1.5 flex items-center gap-2 text-xs flex-wrap"
+          >
+            <code className="font-mono">{d.source_tag}</code>
+            <span
+              className={`badge badge-xs ${
+                d.role === "loci_definition" ? "badge-warning" : "badge-info"
+              }`}
+            >
+              {d.role}
+            </span>
+            <span className="text-base-content/50">{d.evidence_category}</span>
+            <span className="text-base-content/40">
+              &middot; {d.centric}-centric &middot; trait:{" "}
+              {d.trait_scope === "column"
+                ? `column "${d.trait_column?.raw_column ?? "?"}"`
+                : `${d.trait_ids?.length ?? 0} constant`}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {citationBits.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-base-200 text-xs text-base-content/60 flex gap-2 items-center flex-wrap">
+          <span className="text-base-content/40 uppercase tracking-wide">
+            Citation
+          </span>
+          <span>{citationBits.join(" · ")}</span>
+          {c?.doi && (
+            <a
+              href={`https://doi.org/${c.doi}`}
+              target="_blank"
+              rel="noreferrer"
+              className="link link-hover"
+            >
+              DOI
+            </a>
+          )}
+          {c?.pubmed_id && (
+            <a
+              href={`https://pubmed.ncbi.nlm.nih.gov/${c.pubmed_id}/`}
+              target="_blank"
+              rel="noreferrer"
+              className="link link-hover"
+            >
+              PMID {c.pubmed_id}
+            </a>
+          )}
+        </div>
       )}
     </div>
   );

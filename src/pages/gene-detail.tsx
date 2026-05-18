@@ -12,14 +12,21 @@ export function GeneDetailPage() {
   const scoresQ = useGeneScores(gene ?? "");
   const evidenceQ = useGeneEvidence(gene ?? "");
 
-  // Group scores by study
+  // Group scores by trait identity. Phase 7: key on the canonical
+  // trait (scored_evidence.trait, derived from trait_id in redesigned
+  // builds) rather than legacy study_id, which is null post-redesign
+  // and would collapse every locus into one bogus group.
   const studyGroups = useMemo(() => {
     if (!scoresQ.data?.length) return [];
     const map = new Map<string, { studyId: string; trait: string; loci: GeneScore[] }>();
     for (const s of scoresQ.data) {
-      const key = s.study_id;
+      const key = s.trait ?? s.study_id ?? "untraited";
       if (!map.has(key)) {
-        map.set(key, { studyId: s.study_id, trait: s.trait ?? s.study_id, loci: [] });
+        map.set(key, {
+          studyId: s.study_id ?? "",
+          trait: s.trait ?? s.study_id ?? "Unknown trait",
+          loci: [],
+        });
       }
       map.get(key)!.loci.push(s);
     }

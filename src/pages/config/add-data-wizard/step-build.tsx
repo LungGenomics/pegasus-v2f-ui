@@ -9,7 +9,10 @@ import { Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { insertSource } from "../../../data/sourceOps";
 import { insertDerivation } from "../../../data/derivationOps";
 import { buildSource } from "../../../data/pipeline/build";
-import type { DerivationMapping } from "../../../api/types";
+import type {
+  DerivationMapping,
+  DerivationTransform,
+} from "../../../api/types";
 import type { WizardState } from "./types";
 
 interface Props {
@@ -62,6 +65,14 @@ export function StepBuild({ state, onBack, onDone, onCancel }: Props) {
       const mappings: DerivationMapping[] = Object.entries(state.mappings).map(
         ([canonical_field, raw_column]) => ({ canonical_field, raw_column }),
       );
+      // TransformConfigEntry ({type, ...params}) → DerivationTransform
+      // ({seq, type, params}); same shape conversion derivation-card uses.
+      const transforms: DerivationTransform[] = state.transforms.map(
+        (t, i) => {
+          const { type, ...params } = t;
+          return { seq: i, type, params: params as Record<string, unknown> };
+        },
+      );
 
       setProgress({ stage: "routing", message: "Saving derivation…" });
       await insertDerivation({
@@ -72,6 +83,7 @@ export function StepBuild({ state, onBack, onDone, onCancel }: Props) {
         centric: state.centric,
         trait_scope: state.trait_scope,
         mappings,
+        transforms,
         trait_ids:
           state.trait_scope === "constant" ? state.trait_ids : undefined,
         trait_column:
@@ -140,6 +152,14 @@ export function StepBuild({ state, onBack, onDone, onCancel }: Props) {
             state.trait_scope === "constant"
               ? `${state.trait_ids.length} constant trait${state.trait_ids.length === 1 ? "" : "s"}`
               : `per-row column "${state.trait_column}"`
+          }
+        />
+        <SummaryRow
+          label="Transforms"
+          value={
+            state.transforms.length === 0
+              ? "none"
+              : state.transforms.map((t) => t.type).join(" → ")
           }
         />
         <SummaryRow

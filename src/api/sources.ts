@@ -1,8 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getDataSource } from "../data/select";
+import { getDataSource, tableExists } from "../data/select";
 import { sourcesQueries } from "../data/queries/sources";
-import { listSources as listSourceConfigs } from "../data/sourceOps";
+import {
+  listSources as listSourceConfigs,
+  getSourceById,
+} from "../data/sourceOps";
+import {
+  getDerivationByTag,
+  listDerivationsForSource,
+} from "../data/derivationOps";
+import { getTraitByLabel } from "../data/traitOps";
 import type {
+  ConfigDerivation,
+  ConfigSource,
   ImportRequest,
   ImportResult,
   MutationResult,
@@ -150,18 +160,69 @@ export const useSourceVariants = (sourceTag: string | null, enabled: boolean) =>
 export const useProvenance = () =>
   useQuery({ queryKey: ["sources", "provenance"], queryFn: fetchProvenance });
 
-export const fetchSourcesForTrait = (
+// Phase 7: prefer the canonical trait_id join (redesigned builds put
+// trait_id on scored_evidence). Resolve the URL trait *label* to a
+// config.traits row and group sources by trait_id. Fall back to the
+// legacy studies/string-match join for CLI-built DBs that predate the
+// redesign (no trait_id, but a populated `studies` table).
+export const fetchSourcesForTrait = async (
   trait: string,
-): Promise<SourceContribution[]> =>
-  getDataSource().query<SourceContribution>(
-    sourcesQueries.sourcesForTrait(trait),
-  );
+): Promise<SourceContribution[]> => {
+  const ds = getDataSource();
+  if (!(await tableExists("scored_evidence"))) return [];
+  try {
+    const t = await getTraitByLabel(trait);
+    if (t?.id) {
+      const rows = await ds.query<SourceContribution>(
+        sourcesQueries.sourcesForTraitId(t.id),
+      );
+      if (rows.length > 0) return rows;
+    }
+  } catch {
+    /* config.traits absent on a legacy DB — fall through to legacy join */
+  }
+  if (!(await tableExists("studies"))) return [];
+  return ds.query<SourceContribution>(sourcesQueries.sourcesForTrait(trait));
+};
 
 export const useTraitSources = (trait: string) =>
   useQuery({
     queryKey: ["traits", trait, "sources"],
     queryFn: () => fetchSourcesForTrait(trait),
     enabled: !!trait,
+  });
+
+// Phase 7: config view of a built source, keyed by a derivation's
+// source_tag (what the read pages route on). Resolves tag → derivation
+// → its source → all derivations on that source, so the source-detail
+// page can show "Used as" roles, the derivation list, and citation.
+// Returns empty for legacy CLI sources with no config row.
+export interface SourceConfigByTag {
+  source: ConfigSource | null;
+  derivations: ConfigDerivation[];
+}
+
+export const fetchSourceConfigByTag = async (
+  sourceTag: string,
+): Promise<SourceConfigByTag> => {
+  try {
+    const d = await getDerivationByTag(sourceTag);
+    if (!d) return { source: null, derivations: [] };
+    const source = await getSourceById(d.source_id);
+    const derivations = source
+      ? await listDerivationsForSource(source.id)
+      : [d];
+    return { source: source ?? null, derivations };
+  } catch {
+    return { source: null, derivations: [] };
+  }
+};
+
+export const useSourceConfigByTag = (sourceTag: string) =>
+  useQuery({
+    queryKey: ["sources", sourceTag, "config"],
+    queryFn: () => fetchSourceConfigByTag(sourceTag),
+    enabled: !!sourceTag,
   });
 
 export const useImportSource = () => {

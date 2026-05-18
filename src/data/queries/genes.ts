@@ -73,16 +73,20 @@ export const genesQueries = {
     };
   },
 
-  // Locus scores for a gene — one row per locus, joined with locus + study info
+  // Locus scores for a gene — one row per locus, joined with locus geom.
+  // Phase 7: trait identity comes straight off scored_evidence (`s.trait`,
+  // which the redesigned pipeline sets from the canonical config.traits
+  // label resolved via trait_id; legacy CLI DBs also carry it). The old
+  // `LEFT JOIN studies st ON l.study_id` path is dropped — redesigned
+  // builds don't populate study_id, so that join silently lost all rows.
   scores: (gene: string): SqlQuery => ({
     sql:
       "SELECT DISTINCT s.locus_id, s.gene_symbol, s.integration_rank, " +
       "s.is_predicted_effector, s.match_type, s.n_candidate_genes, " +
       "l.locus_name, l.chromosome, l.start_position, l.end_position, " +
-      "l.study_id, st.trait " +
+      "s.study_id, s.trait " +
       "FROM scored_evidence s " +
       "JOIN loci l ON s.locus_id = l.locus_id " +
-      "LEFT JOIN studies st ON l.study_id = st.study_id " +
       "WHERE s.gene_symbol = ? " +
       "ORDER BY s.integration_rank",
     params: [gene],

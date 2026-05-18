@@ -7,10 +7,11 @@ import type {
   DerivationRole,
   DerivationTraitScope,
   SourceCitation,
+  TransformConfigEntry,
 } from "../../../api/types";
 
 export interface WizardState {
-  step: 1 | 2 | 3 | 4;
+  step: 1 | 2 | 3 | 4 | 5;
 
   // --- Step 1: source metadata ---
   name: string;
@@ -38,7 +39,12 @@ export interface WizardState {
   /** Optional citation metadata, populated when role === 'loci_definition'. */
   citation: Omit<SourceCitation, "source_id" | "updated_at"> | null;
 
-  // --- Step 3: column mapping ---
+  // --- Step 3: transforms ---
+  /** Ordered transform pipeline applied to the raw table *before* the
+   *  column mapping projection (matches pipeline/route.ts ordering). */
+  transforms: TransformConfigEntry[];
+
+  // --- Step 4: column mapping ---
   /** canonical_field → raw_column */
   mappings: Record<string, string>;
 }
@@ -62,6 +68,7 @@ export const INITIAL_STATE: WizardState = {
   trait_ids: [],
   trait_column: "",
   citation: null,
+  transforms: [],
   mappings: {},
 };
 

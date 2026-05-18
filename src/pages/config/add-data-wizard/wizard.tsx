@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { StepSource } from "./step-source";
 import { StepInterpret } from "./step-interpret";
+import { StepTransforms } from "./step-transforms";
 import { StepMapping } from "./step-mapping";
 import { StepBuild } from "./step-build";
 import { INITIAL_STATE, type WizardState } from "./types";
@@ -16,8 +17,9 @@ interface Props {
 const STEPS = [
   { idx: 1, label: "Source" },
   { idx: 2, label: "Interpret" },
-  { idx: 3, label: "Mapping" },
-  { idx: 4, label: "Build" },
+  { idx: 3, label: "Transforms" },
+  { idx: 4, label: "Mapping" },
+  { idx: 5, label: "Build" },
 ] as const;
 
 export function AddDataWizard({ onCancel, onDone }: Props) {
@@ -83,7 +85,7 @@ export function AddDataWizard({ onCancel, onDone }: Props) {
         />
       )}
       {state.step === 3 && (
-        <StepMapping
+        <StepTransforms
           state={state}
           onPatch={patch}
           onBack={() => setStep(2)}
@@ -91,9 +93,17 @@ export function AddDataWizard({ onCancel, onDone }: Props) {
         />
       )}
       {state.step === 4 && (
+        <StepMapping
+          state={state}
+          onPatch={patch}
+          onBack={() => setStep(3)}
+          onNext={() => setStep(5)}
+        />
+      )}
+      {state.step === 5 && (
         <StepBuild
           state={state}
-          onBack={() => setStep(3)}
+          onBack={() => setStep(4)}
           onDone={onDone}
           onCancel={onCancel}
         />
