@@ -108,6 +108,18 @@ export function initDataSource(): Promise<DataSourceState> {
       return "duckdb-wasm" as const;
     } catch (err) {
       console.error("Failed to restore DuckDB from OPFS:", err);
+      // A failed restore can leave the worker alive still holding the
+      // exclusive OPFS sync-access handle on the DB file, which then
+      // blocks every later attach/save (createSyncAccessHandle /
+      // createWritable throw "another open Access Handle"). Tear the
+      // worker down so recovery paths (Load shared / Create new) can
+      // reacquire the file.
+      try {
+        const m = await import("./adapters/duckdb-wasm");
+        await m.disposeAll();
+      } catch {
+        /* best effort */
+      }
       _initPromise = null;
       throw err;
     }
@@ -125,7 +137,34 @@ export async function attachDuckDBFile(file: File): Promise<void> {
   await m.disposeAll();
 
   log("writing bytes to OPFS");
-  await saveDuckDB(file);
+  try {
+    await saveDuckDB(file);
+  } catch (err) {
+    // The OPFS file is locked by an open sync-access handle. After
+    // disposeAll() the in-page worker is gone, so the most common
+    // remaining cause is the browser not having released the handle
+    // yet (give it a tick) or a stale file from a crashed session
+    // (delete + rewrite — a fresh file has no prior handle).
+    console.warn("[attachFile] OPFS write failed, retrying after reset:", err);
+    await new Promise((r) => setTimeout(r, 200));
+    try {
+      await clearDuckDB();
+    } catch {
+      /* removeEntry may also be locked — the retry below will surface it */
+    }
+    try {
+      await saveDuckDB(file);
+    } catch (err2) {
+      throw new Error(
+        "The local database file is locked and couldn't be replaced. " +
+          "This almost always means the app is open in another browser " +
+          "tab — close all other tabs of this app, then reload and try " +
+          `again. (underlying: ${
+            err2 instanceof Error ? err2.message : String(err2)
+          })`,
+      );
+    }
+  }
   const handle = await getSavedHandle();
   if (handle) {
     log("attaching OPFS handle");

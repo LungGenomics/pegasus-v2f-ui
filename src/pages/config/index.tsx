@@ -13,6 +13,7 @@ import { AddDataWizard } from "./add-data-wizard";
 import { SourceDetailEditor } from "./source-detail";
 import { TraitsList } from "./traits-list";
 import { TraitDetailPanel } from "./trait-detail";
+import { StudiesList } from "./studies-list";
 
 export function ConfigWorkspace() {
   const [params, setParams] = useSearchParams();
@@ -69,16 +70,22 @@ export function ConfigWorkspace() {
   }
 
   const sources = sourcesQ.data ?? [];
-  const view = params.get("view") === "traits" ? "traits" : "sources";
-  const setView = (v: "sources" | "traits") =>
-    setParams(v === "sources" ? {} : { view: "traits" });
+  const viewParam = params.get("view");
+  const view =
+    viewParam === "traits"
+      ? "traits"
+      : viewParam === "studies"
+        ? "studies"
+        : "sources";
+  const setView = (v: "sources" | "traits" | "studies") =>
+    setParams(v === "sources" ? {} : { view: v });
 
   return (
     <div>
-      {/* Tab header (Sources | Traits) — list views only; source detail
-          and the wizard are drill-ins handled by the early returns. */}
+      {/* Tab header — list views only; source detail and the wizard
+          are drill-ins handled by the early returns. */}
       <div className="flex items-center gap-1 mb-4 border-b border-base-300">
-        {(["sources", "traits"] as const).map((v) => (
+        {(["sources", "traits", "studies"] as const).map((v) => (
           <button
             key={v}
             type="button"
@@ -103,6 +110,8 @@ export function ConfigWorkspace() {
             onSelect={(traitId) => setParams({ view: "traits", trait: traitId })}
           />
         </div>
+      ) : view === "studies" ? (
+        <StudiesList onOpen={(name) => setParams({ source: name })} />
       ) : (
         <SourcesTab
           sources={sources}

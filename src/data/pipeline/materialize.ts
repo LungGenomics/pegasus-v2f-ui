@@ -77,6 +77,17 @@ async function ensureScoredSchema(
       sql: `ALTER TABLE main.scored_evidence ADD COLUMN IF NOT EXISTS ${col} ${type}`,
     });
   }
+  // Legacy `study_id VARCHAR NOT NULL` (no FK here, unlike loci). The
+  // redesigned insert omits it; relax NOT NULL so the insert passes.
+  // Best-effort — see ensureLociSchema for rationale.
+  try {
+    await ds.exec({
+      sql:
+        "ALTER TABLE main.scored_evidence ALTER COLUMN study_id DROP NOT NULL",
+    });
+  } catch {
+    /* column absent (fresh DB) or already nullable — fine */
+  }
 }
 
 const STAGING = {

@@ -60,6 +60,22 @@ async function ensureLociSchema(
       sql: `ALTER TABLE main.loci ADD COLUMN IF NOT EXISTS ${col} ${type}`,
     });
   }
+  // A CLI-built table has a legacy column
+  // `study_id VARCHAR NOT NULL REFERENCES studies(study_id)` that the
+  // redesigned insert doesn't populate. We can't DROP the column (the
+  // FK depends on it) and DuckDB can't easily drop an auto-named FK
+  // constraint, so instead just relax NOT NULL: a NULL in a child FK
+  // column is not enforced, so the insert passes with study_id = NULL
+  // without touching the constraint or legacy rows. Best-effort —
+  // there's no DROP NOT NULL IF EXISTS, and the column is absent on a
+  // fresh web-created DB.
+  try {
+    await ds.exec({
+      sql: "ALTER TABLE main.loci ALTER COLUMN study_id DROP NOT NULL",
+    });
+  } catch {
+    /* column absent (fresh DB) or already nullable — fine */
+  }
 }
 
 export interface DeriveLociResult {
