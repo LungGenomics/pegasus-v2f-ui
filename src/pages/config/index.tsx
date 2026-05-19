@@ -32,6 +32,7 @@ export function ConfigWorkspace() {
       <SourceDetailEditor
         sourceName={selectedSource}
         onBack={() => setParams({})}
+        onRename={(n) => setParams({ source: n })}
       />
     );
   }

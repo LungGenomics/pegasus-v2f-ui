@@ -19,6 +19,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import {
@@ -45,6 +46,7 @@ import { Loading, ErrorAlert } from "../../components/loading";
 import { DerivationCard } from "./derivation-card";
 import { RawTableGrid } from "./raw-table-grid";
 import { hasRawTable } from "../../data/rawData";
+import { suggestDerivation } from "../../data/suggestDerivation";
 import type { FormState } from "../../components/schema-form/types";
 import type {
   ConfigDerivation,
@@ -55,9 +57,13 @@ import type {
 interface Props {
   sourceName: string;
   onBack: () => void;
+  /** Called when the source is renamed so the caller can re-point the
+   *  route (the page is keyed by name; without this the refetch looks
+   *  up the old name and 404s). */
+  onRename?: (newName: string) => void;
 }
 
-export function SourceDetailEditor({ sourceName, onBack }: Props) {
+export function SourceDetailEditor({ sourceName, onBack, onRename }: Props) {
   const qc = useQueryClient();
   const sourceQ = useQuery({
     queryKey: ["config", "source", sourceName],
@@ -95,7 +101,11 @@ export function SourceDetailEditor({ sourceName, onBack }: Props) {
       </button>
 
       <SourceHeader source={source} isStudy={isStudy} onRefetch={refetch} />
-      <MetadataCard source={source} onRefetch={refetch} />
+      <MetadataCard
+        source={source}
+        onRefetch={refetch}
+        onRenamed={onRename}
+      />
       <CitationCard source={source} isStudy={isStudy} onRefetch={refetch} />
       <TraitsCard source={source} onRefetch={refetch} />
       <RawDataSection source={source} />
@@ -203,9 +213,11 @@ function SourceHeader({
 function MetadataCard({
   source,
   onRefetch,
+  onRenamed,
 }: {
   source: ConfigSource;
   onRefetch: () => Promise<void>;
+  onRenamed?: (newName: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -215,8 +227,9 @@ function MetadataCard({
     setError(null);
     setBusy(true);
     try {
+      const newName = state.name as string;
       await updateSource(source.name, {
-        name: state.name as string,
+        name: newName,
         display_name: (state.display_name as string) || undefined,
         description: (state.description as string) || undefined,
         source_type: state.source_type as string,
@@ -224,8 +237,14 @@ function MetadataCard({
         sheet: (state.sheet as string) || undefined,
         skip_rows: Number(state.skip_rows) || 0,
       });
-      await onRefetch();
       setEditing(false);
+      if (newName && newName !== source.name && onRenamed) {
+        // Re-point the route to the new name *before* any refetch —
+        // the page is keyed by name, so refetching the old one 404s.
+        onRenamed(newName);
+      } else {
+        await onRefetch();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -516,10 +535,42 @@ function DerivationsSection({
   onRefetch: () => Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
+  const [suggested, setSuggested] = useState<ConfigDerivation | null>(null);
   const rawColumnsQ = useQuery({
     queryKey: ["raw-columns", source.id],
     queryFn: () => fetchRawColumns(source.id),
   });
+  const rawColumns = rawColumnsQ.data ?? [];
+
+  const startBlank = () => {
+    setSuggested(null);
+    setAdding(true);
+  };
+  const startSuggested = () => {
+    const s = suggestDerivation(rawColumns);
+    setSuggested({
+      id: "",
+      source_id: source.id,
+      source_tag: "",
+      role: "evidence",
+      evidence_category: "GWAS",
+      centric: s.centric,
+      trait_scope: s.trait_scope,
+      mappings: Object.entries(s.mappings).map(
+        ([canonical_field, raw_column]) => ({ canonical_field, raw_column }),
+      ),
+      transforms: [],
+      trait_ids: [],
+      ...(s.trait_column
+        ? { trait_column: { raw_column: s.trait_column } }
+        : {}),
+    } as ConfigDerivation);
+    setAdding(true);
+  };
+  const stopAdding = () => {
+    setAdding(false);
+    setSuggested(null);
+  };
 
   return (
     <section className="space-y-3">
@@ -530,11 +581,25 @@ function DerivationsSection({
         <button
           type="button"
           className="btn btn-ghost btn-xs gap-1"
-          onClick={() => setAdding(true)}
+          onClick={startSuggested}
+          disabled={adding || rawColumns.length === 0}
+          title={
+            rawColumns.length === 0
+              ? "Needs an ingested raw table to read columns from"
+              : "Pre-fill a derivation from the raw columns (you review/edit)"
+          }
+        >
+          <Sparkles className="size-3" />
+          Suggest derivation
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs gap-1"
+          onClick={startBlank}
           disabled={adding}
         >
           <Plus className="size-3" />
-          Add derivation
+          Add blank
         </button>
       </div>
 
@@ -567,9 +632,11 @@ function DerivationsSection({
       {adding && (
         <DerivationCard
           isNew
+          key={suggested ? "suggested" : "blank"}
+          derivation={suggested ?? undefined}
           source={source}
-          rawColumns={rawColumnsQ.data ?? []}
-          onCancel={() => setAdding(false)}
+          rawColumns={rawColumns}
+          onCancel={stopAdding}
           onSave={async (patch) => {
             // The DerivationCard composes a full input object on save;
             // delegate to insertDerivation here.
@@ -587,7 +654,7 @@ function DerivationsSection({
               trait_column: patch.trait_column ?? undefined,
             });
             await onRefetch();
-            setAdding(false);
+            stopAdding();
           }}
         />
       )}

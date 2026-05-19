@@ -59,10 +59,13 @@ export function AddSource({
   const pickUrl = (u: string) => {
     setUrl(u);
     setFile(null);
+    // Only auto-fill from a URL when the path tail is clearly a
+    // filename (has an extension). Sheets/edit URLs end in junk like
+    // `?gid=…` / `#gid=…`, so we leave the name blank and let the user
+    // type a meaningful one (submit is gated on a valid name anyway).
     if (!name) {
-      // sheet/url: derive a slug from the last meaningful path part
-      const tail = u.split(/[/?#]/).filter(Boolean).pop() ?? "source";
-      setName(slugify(tail) || "source");
+      const tail = u.split(/[?#]/)[0]?.split("/").filter(Boolean).pop() ?? "";
+      if (/\.[a-z0-9]{2,5}$/i.test(tail)) setName(slugify(tail));
     }
   };
 

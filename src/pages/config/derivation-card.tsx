@@ -9,7 +9,7 @@ import { TraitInput } from "../../components/trait-input";
 import { SchemaFormProvider } from "../../components/schema-form/context";
 import { TransformEditor } from "./transform-editor";
 import { TransformPicker } from "./transform-picker";
-import { CANONICAL_FIELDS, REQUIRED_FIELDS } from "./add-data-wizard/types";
+import { CANONICAL_FIELDS, REQUIRED_FIELDS } from "../../data/canonicalFields";
 import type {
   ConfigDerivation,
   ConfigSource,
