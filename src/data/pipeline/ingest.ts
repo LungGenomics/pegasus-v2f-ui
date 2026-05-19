@@ -13,6 +13,7 @@
 import { insertSource, getSourceById } from "../sourceOps";
 import type { InsertSourceInput } from "../sourceOps";
 import { loadRawSource, ingestRawFile } from "./load";
+import { getDataSource } from "../select";
 import type { ConfigSource } from "../../api/types";
 
 export interface IngestResult {
@@ -49,6 +50,15 @@ export async function ingestSource(
   const result = usesFile
     ? await ingestRawFile(source, file!)
     : await loadRawSource(source);
+
+  // Bump raw_version so the source's content signature changes (the
+  // raw table lives outside config.sources, so the config row's
+  // row_version wouldn't otherwise move). Only on explicit ingest —
+  // build's internal URL re-load must NOT bump (it isn't an edit).
+  await getDataSource().exec({
+    sql: "UPDATE config.sources SET raw_version = raw_version + 1 WHERE id = ?",
+    params: [id],
+  });
 
   return { source, rawTable: result.raw_table, rows: result.rows };
 }

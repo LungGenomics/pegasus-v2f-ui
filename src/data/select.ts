@@ -237,6 +237,14 @@ export async function loadSharedDuckDB(): Promise<void> {
   });
   log("attaching via attachDuckDBFile");
   await attachDuckDBFile(file);
+  // The shared DB just pulled from R2 *is* the published baseline —
+  // snapshot the dirty-tracker so local edits after this read dirty.
+  try {
+    const { snapshotPublishState } = await import("./dirtyState");
+    await snapshotPublishState(ptr.current_key);
+  } catch (err) {
+    console.warn("[loadShared] publish-state baseline skipped:", err);
+  }
   log("done");
 }
 
@@ -302,8 +310,36 @@ export async function createNewDuckDB(name = "new.duckdb"): Promise<void> {
   _instance = ds;
   _state = "duckdb-wasm";
   _initPromise = null;
+  // Fresh empty DB — baseline is "nothing published"; snapshot so an
+  // empty _publish_state exists (any source added later reads dirty).
+  try {
+    const { snapshotPublishState } = await import("./dirtyState");
+    await snapshotPublishState();
+  } catch (err) {
+    console.warn("[createNew] publish-state baseline skipped:", err);
+  }
   log("done — notifying listeners");
   notify();
+}
+
+// Raw bytes of the OPFS-backed .duckdb after a CHECKPOINT — used by
+// Publish to upload the working copy to R2. Throws on an in-memory
+// (non-OPFS) session since there's no durable file to publish.
+export async function exportDuckDBBytes(): Promise<Uint8Array> {
+  if (!_instance) throw new Error("No DB attached");
+  try {
+    await _instance.exec({ sql: "CHECKPOINT" });
+  } catch (err) {
+    console.warn("CHECKPOINT before export failed (continuing):", err);
+  }
+  const handle = await getSavedHandle();
+  if (!handle) {
+    throw new Error(
+      "This session isn't OPFS-backed (in-memory) — nothing durable to publish.",
+    );
+  }
+  const file = await handle.getFile();
+  return new Uint8Array(await file.arrayBuffer());
 }
 
 // Trigger a Blob download of the OPFS-backed .duckdb. CHECKPOINT first so any

@@ -8,12 +8,18 @@ import {
   isAttached,
   subscribeDataSource,
 } from "./data/select";
+import { captureSyncRedirect } from "./data/syncClient";
 
 export function App() {
   const [booted, setBooted] = useState(false);
   const [attached, setAttached] = useState(isAttached());
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Consume the post-OAuth #sync_token/#sync_error fragment before
+    // anything else (it scrubs the hash so creds don't linger).
+    const { error } = captureSyncRedirect();
+    if (error) setSyncError(error);
     let cancelled = false;
     initDataSource()
       .catch((err) => console.error("DataSource init failed:", err))
@@ -55,6 +61,21 @@ export function App() {
   return (
     <div className="min-h-screen bg-base-200">
       <Navbar />
+      {syncError && (
+        <div
+          role="alert"
+          className="alert alert-error rounded-none text-sm py-2 flex"
+        >
+          <span className="flex-1">Sync sign-in rejected: {syncError}</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs"
+            onClick={() => setSyncError(null)}
+          >
+            dismiss
+          </button>
+        </div>
+      )}
       {isFullWidth ? (
         <main className={isLanding ? "" : "px-6 py-6"}>
           <AppRoutes />
