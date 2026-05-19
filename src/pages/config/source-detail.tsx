@@ -43,6 +43,8 @@ import { SchemaForm } from "../../components/schema-form/schema-form";
 import { TraitInput } from "../../components/trait-input";
 import { Loading, ErrorAlert } from "../../components/loading";
 import { DerivationCard } from "./derivation-card";
+import { RawTableGrid } from "./raw-table-grid";
+import { hasRawTable } from "../../data/rawData";
 import type { FormState } from "../../components/schema-form/types";
 import type {
   ConfigDerivation,
@@ -96,6 +98,7 @@ export function SourceDetailEditor({ sourceName, onBack }: Props) {
       <MetadataCard source={source} onRefetch={refetch} />
       <CitationCard source={source} isStudy={isStudy} onRefetch={refetch} />
       <TraitsCard source={source} onRefetch={refetch} />
+      <RawDataSection source={source} />
       <DerivationsSection
         source={source}
         derivations={derivations}
@@ -452,6 +455,47 @@ function TraitsCard({
       {error && (
         <div role="alert" className="alert alert-error text-sm">
           <span>{error}</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// --- Raw data section (Phase 2) ---
+
+function RawDataSection({ source }: { source: ConfigSource }) {
+  const [open, setOpen] = useState(true);
+  const hasRawQ = useQuery({
+    queryKey: ["raw-exists", source.id],
+    queryFn: () => hasRawTable(source.id),
+  });
+
+  return (
+    <section className="border border-base-300 rounded-lg bg-base-100">
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-base-200/40"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <h2 className="text-sm font-medium text-base-content/60 flex-1">
+          Raw data
+        </h2>
+        <span className="text-xs text-base-content/40">
+          {open ? "hide" : "show"}
+        </span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4">
+          {hasRawQ.isLoading ? (
+            <div className="text-sm text-base-content/40">Checking…</div>
+          ) : hasRawQ.data ? (
+            <RawTableGrid sourceId={source.id} />
+          ) : (
+            <div className="border border-dashed border-base-300 rounded-lg p-6 text-center text-sm text-base-content/60">
+              No raw table for this source yet. It's created when the
+              source is ingested; rebuild or re-ingest to populate it.
+            </div>
+          )}
         </div>
       )}
     </section>
