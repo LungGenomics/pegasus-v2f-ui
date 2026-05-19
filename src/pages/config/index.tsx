@@ -7,9 +7,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
-import { Plus, Database, FlaskConical, ArrowLeft } from "lucide-react";
+import { Plus, Database, FlaskConical } from "lucide-react";
 import { listSources } from "../../data/sourceOps";
-import { AddDataWizard } from "./add-data-wizard";
+import { AddSource } from "./add-source";
 import { SourceDetailEditor } from "./source-detail";
 import { TraitsList } from "./traits-list";
 import { TraitDetailPanel } from "./trait-detail";
@@ -47,25 +47,16 @@ export function ConfigWorkspace() {
 
   if (adding) {
     return (
-      <div>
-        <button
-          onClick={() => setAdding(false)}
-          className="inline-flex items-center gap-1 text-sm text-base-content/50 hover:text-base-content mb-4"
-        >
-          <ArrowLeft className="size-3.5" />
-          Sources
-        </button>
-        <AddDataWizard
-          onCancel={() => setAdding(false)}
-          onDone={(name) => {
-            setAdding(false);
-            void sourcesQ.refetch();
-            // Jump into the new source's detail page so the user can
-            // add more derivations or rebuild without hunting for it.
-            setParams({ source: name });
-          }}
-        />
-      </div>
+      <AddSource
+        onCancel={() => setAdding(false)}
+        onDone={(name) => {
+          setAdding(false);
+          void sourcesQ.refetch();
+          // Jump into the new source's detail view so the user can add
+          // derivations / build against the just-ingested raw table.
+          setParams({ source: name });
+        }}
+      />
     );
   }
 

@@ -6,7 +6,8 @@
 // Scoring (materialize.ts) is a separate top-level call — runs once
 // after all sources are built, not per-source.
 
-import { getSource } from "../sourceOps";
+import { getSource, rawTableName } from "../sourceOps";
+import { getDataSource, tableExists } from "../select";
 import { listDerivationsForSource } from "../derivationOps";
 import { loadRawSource, type LoadResult } from "./load";
 import { routeDerivation, type RouteResult } from "./route";
@@ -30,8 +31,30 @@ export async function buildSource(name: string): Promise<BuildSourceResult> {
     );
   }
 
-  // 1. Raw load
-  const raw = await loadRawSource(source);
+  // 1. Raw — ingest is decoupled from build (it happens on Add). Use
+  //    the already-materialized main.raw_<id> if present. Only (re)load
+  //    when it's missing AND the source can be re-fetched from a URL;
+  //    file sources have no URL — their raw table is the durable copy,
+  //    so a missing one is a hard error, not a silent re-fetch.
+  const tableName = rawTableName(source.id);
+  let raw: LoadResult;
+  if (await tableExists(tableName)) {
+    const [count] = await getDataSource().query<{ n: number }>({
+      sql: `SELECT COUNT(*) AS n FROM main."${tableName}"`,
+    });
+    raw = {
+      source_id: source.id,
+      raw_table: tableName,
+      rows: Number(count?.n ?? 0),
+    };
+  } else if (source.url) {
+    raw = await loadRawSource(source);
+  } else {
+    throw new Error(
+      `Source '${name}' has no raw table and no URL to fetch it from — ` +
+        `re-ingest the file for this source before building.`,
+    );
+  }
 
   // 2. Per-derivation routing into main.evidence
   const derivations = await listDerivationsForSource(source.id);

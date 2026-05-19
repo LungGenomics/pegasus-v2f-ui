@@ -82,6 +82,27 @@ async function fetchAndPrepare(source: ConfigSource): Promise<FetchedRaw> {
   );
 }
 
+/** Build a FetchedRaw from an uploaded File's bytes (no network). The
+ *  read expression is chosen from the file extension; skip_rows is
+ *  honored the same way as the URL path. Parquet is read directly. */
+async function prepareFromFile(
+  source: Pick<ConfigSource, "name" | "skip_rows">,
+  file: File,
+): Promise<FetchedRaw> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const lower = file.name.toLowerCase();
+  const isParquet = lower.endsWith(".parquet");
+  const isTsv = lower.endsWith(".tsv") || lower.endsWith(".txt");
+  const ext = isParquet ? "parquet" : isTsv ? "tsv" : "csv";
+  const registerAs = `${source.name}.${ext}`;
+  const readExpr = isParquet
+    ? `read_parquet(${strLit(registerAs)})`
+    : `read_csv_auto(${strLit(registerAs)}, header=true, delim=${strLit(
+        isTsv ? "\t" : ",",
+      )}, skip=${source.skip_rows ?? 0})`;
+  return { bytes, registerAs, readExpr };
+}
+
 export interface LoadResult {
   source_id: string;
   raw_table: string;
@@ -140,11 +161,13 @@ export async function previewSource(
   };
 }
 
-/** Load a source's raw bytes into main.raw_<source_id>. Idempotent —
- *  CREATE OR REPLACE TABLE wipes any prior contents. */
-export async function loadRawSource(source: ConfigSource): Promise<LoadResult> {
+/** Materialize a prepared raw payload into main.raw_<source_id>.
+ *  Idempotent — CREATE OR REPLACE TABLE wipes any prior contents. */
+async function writeRawTable(
+  source: ConfigSource,
+  fetched: FetchedRaw,
+): Promise<LoadResult> {
   const ds = getDataSource();
-  const fetched = await fetchAndPrepare(source);
   const tableName = rawTableName(source.id);
 
   // registerSourceBytes / dropRegisteredFile are module-level exports of
@@ -169,4 +192,19 @@ export async function loadRawSource(source: ConfigSource): Promise<LoadResult> {
   } finally {
     await adapter.dropRegisteredFile(fetched.registerAs).catch(() => {});
   }
+}
+
+/** Load a URL/sheet-backed source's raw bytes into main.raw_<id>. */
+export async function loadRawSource(source: ConfigSource): Promise<LoadResult> {
+  return writeRawTable(source, await fetchAndPrepare(source));
+}
+
+/** Ingest an uploaded File's bytes into main.raw_<id> — no network.
+ *  The only raw path for `source_type = "file"` sources (they have no
+ *  URL to re-fetch; the raw table is their durable copy). */
+export async function ingestRawFile(
+  source: ConfigSource,
+  file: File,
+): Promise<LoadResult> {
+  return writeRawTable(source, await prepareFromFile(source, file));
 }
