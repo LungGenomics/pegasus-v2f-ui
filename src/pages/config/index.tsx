@@ -20,6 +20,10 @@ import {
   signIn,
   signOut,
   publish,
+  acquireLock,
+  releaseLock,
+  fetchLockHolder,
+  getLease,
 } from "../../data/syncClient";
 import { AddSource } from "./add-source";
 import { SourceDetailEditor } from "./source-detail";
@@ -151,13 +155,28 @@ function DirtyBar({
   state: DirtyState | undefined;
   onDiscarded: () => Promise<void>;
 }) {
-  const [busy, setBusy] = useState<null | "discard" | "publish">(null);
+  const [busy, setBusy] = useState<
+    null | "discard" | "publish" | "lock" | "unlock"
+  >(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [session, setSession] = useState(getSyncSession());
+  const [lease, setLease] = useState(() => getLease());
+  const qc = useQueryClient();
+  const lockQ = useQuery({
+    queryKey: ["sync", "lock"],
+    queryFn: fetchLockHolder,
+    enabled: !!session,
+    refetchInterval: session ? 30_000 : false,
+  });
   if (!state?.anyDirty) return null;
 
   const n = state.dirtySources.size;
+  const holder = lockQ.data ?? null;
+  const someoneElseHolds =
+    holder && session && holder.login !== session.login;
+  const iHoldLock =
+    holder && session && holder.login === session.login && !!lease;
 
   const discard = async () => {
     if (
@@ -188,12 +207,49 @@ function DirtyBar({
       const bytes = await exportDuckDBBytes();
       const res = await publish(bytes);
       await snapshotPublishState(res.current_key);
+      // Worker released the lock server-side on commit; reflect that.
+      setLease(null);
+      await qc.invalidateQueries({ queryKey: ["sync", "lock"] });
       await onDiscarded(); // invalidates queries → dirty state clears
       setMsg(`Published ${res.current_key}`);
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
       setErr(m);
       if (/sign in again/i.test(m)) setSession(null);
+      if (/lock lost|re-acquire/i.test(m)) {
+        setLease(null);
+        await qc.invalidateQueries({ queryKey: ["sync", "lock"] });
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const doAcquire = async () => {
+    setErr(null);
+    setMsg(null);
+    setBusy("lock");
+    try {
+      const l = await acquireLock();
+      setLease(l);
+      await qc.invalidateQueries({ queryKey: ["sync", "lock"] });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const doRelease = async () => {
+    setErr(null);
+    setMsg(null);
+    setBusy("unlock");
+    try {
+      await releaseLock();
+      setLease(null);
+      await qc.invalidateQueries({ queryKey: ["sync", "lock"] });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -225,7 +281,34 @@ function DirtyBar({
         ) : null}
         Discard (re-pull shared)
       </button>
-      {session ? (
+      {!session ? (
+        <button
+          type="button"
+          className="btn btn-xs btn-primary gap-1"
+          onClick={() => signIn()}
+        >
+          <UploadCloud className="size-3" />
+          Sign in to publish
+        </button>
+      ) : someoneElseHolds && holder ? (
+        <>
+          <span className="text-xs">
+            🔒 Locked by <strong>@{holder.login}</strong> · until{" "}
+            {new Date(holder.expires_at).toLocaleTimeString()}
+          </span>
+          <button
+            type="button"
+            className="btn btn-xs btn-ghost"
+            onClick={() => {
+              signOut();
+              setSession(null);
+              setLease(null);
+            }}
+          >
+            @{session.login} · sign out
+          </button>
+        </>
+      ) : iHoldLock && lease ? (
         <>
           <button
             type="button"
@@ -239,7 +322,46 @@ function DirtyBar({
             ) : (
               <UploadCloud className="size-3" />
             )}
-            Publish
+            Publish (lock until{" "}
+            {new Date(lease.expires_at).toLocaleTimeString()})
+          </button>
+          <button
+            type="button"
+            className="btn btn-xs"
+            onClick={() => void doRelease()}
+            disabled={busy !== null}
+          >
+            {busy === "unlock" ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : null}
+            Release lock
+          </button>
+          <button
+            type="button"
+            className="btn btn-xs btn-ghost"
+            onClick={async () => {
+              await releaseLock();
+              signOut();
+              setSession(null);
+              setLease(null);
+            }}
+          >
+            @{session.login} · sign out
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="btn btn-xs btn-primary gap-1"
+            onClick={() => void doAcquire()}
+            disabled={busy !== null}
+            title="Take the editing lock — required to publish"
+          >
+            {busy === "lock" ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : null}
+            Acquire edit lock
           </button>
           <button
             type="button"
@@ -248,20 +370,10 @@ function DirtyBar({
               signOut();
               setSession(null);
             }}
-            title={`Signed in as @${session.login}`}
           >
             @{session.login} · sign out
           </button>
         </>
-      ) : (
-        <button
-          type="button"
-          className="btn btn-xs btn-primary gap-1"
-          onClick={() => signIn()}
-        >
-          <UploadCloud className="size-3" />
-          Sign in to publish
-        </button>
       )}
     </div>
   );
