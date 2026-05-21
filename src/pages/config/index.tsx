@@ -4,7 +4,7 @@
 // detail editor in-place. "Add data" launches the wizard. Selection
 // is held in URL state (?source=name) so refresh keeps the view.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 import { Plus, Database, FlaskConical, Loader2, UploadCloud } from "lucide-react";
@@ -24,6 +24,7 @@ import {
   releaseLock,
   fetchLockHolder,
   getLease,
+  heartbeatLock,
 } from "../../data/syncClient";
 import { AddSource } from "./add-source";
 import { SourceDetailEditor } from "./source-detail";
@@ -169,6 +170,23 @@ function DirtyBar({
     enabled: !!session,
     refetchInterval: session ? 30_000 : false,
   });
+  // Heartbeat: while we hold a lease, ping /db/lock/heartbeat at ~40%
+  // of the server-side TTL (300s) so a long editing session doesn't
+  // get evicted mid-edit. On any heartbeat failure (423 etc.) we
+  // clear the local lease so the UI flips back to acquire.
+  useEffect(() => {
+    if (!session || !lease) return;
+    const tick = async () => {
+      try {
+        setLease(await heartbeatLock());
+      } catch {
+        setLease(null);
+        void qc.invalidateQueries({ queryKey: ["sync", "lock"] });
+      }
+    };
+    const id = window.setInterval(() => void tick(), 120_000);
+    return () => window.clearInterval(id);
+  }, [session?.token, lease?.lease_token, qc]);
   if (!state?.anyDirty) return null;
 
   const n = state.dirtySources.size;

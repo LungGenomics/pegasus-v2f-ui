@@ -120,6 +120,32 @@ export async function acquireLock(): Promise<Lease> {
   return lease;
 }
 
+export async function heartbeatLock(): Promise<Lease> {
+  const sess = getSyncSession();
+  const lease = getLease();
+  if (!sess) throw new Error("Not signed in.");
+  if (!lease) throw new Error("No lease to heartbeat.");
+  const r = await fetch(`${SYNC_BASE}/db/lock/heartbeat`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${sess.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ lease_token: lease.lease_token }),
+  });
+  if (r.status === 401) clearSessionAnd("Sync session expired — sign in again.");
+  if (r.status === 423) {
+    clearLease();
+    const j = (await r.json().catch(() => ({}))) as { error?: string };
+    throw new Error(j.error ?? "lease lost; re-acquire to publish");
+  }
+  if (!r.ok) throw new Error(`heartbeat failed (${r.status})`);
+  const { expires_at } = (await r.json()) as { expires_at: number };
+  const next: Lease = { ...lease, expires_at };
+  setLease(next);
+  return next;
+}
+
 export async function releaseLock(): Promise<void> {
   const sess = getSyncSession();
   const lease = getLease();
