@@ -182,6 +182,7 @@ export async function attachUrl(url: string, alias = "gene"): Promise<void> {
 // edits persist across reloads automatically.
 export async function attachOpfsHandle(
   handle: FileSystemFileHandle,
+  walHandle: FileSystemFileHandle | null,
   alias = "gene",
 ): Promise<void> {
   const db = await bootDuckDB();
@@ -191,6 +192,17 @@ export async function attachOpfsHandle(
     duckdb.DuckDBDataProtocol.BROWSER_FSACCESS,
     true,
   );
+  // Companion WAL — without this, DuckDB buffers `<alias>.wal` in
+  // memory and small writes that don't trip the auto-CHECKPOINT
+  // threshold are lost on refresh.
+  if (walHandle) {
+    await db.registerFileHandle(
+      `${alias}.wal`,
+      walHandle,
+      duckdb.DuckDBDataProtocol.BROWSER_FSACCESS,
+      true,
+    );
+  }
   await resetConn();
   const conn = await getConn();
   await conn.query(`ATTACH '${alias}' AS ${alias}`);

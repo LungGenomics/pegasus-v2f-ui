@@ -4,6 +4,13 @@
 
 const DIR = "duckdb";
 const FILE = "current.duckdb";
+// DuckDB-WASM with BROWSER_FSACCESS expects a sibling `<alias>.wal`
+// file. If only the main file's OPFS handle is registered, the WAL
+// gets buffered in memory ("Buffering missing file: gene.wal" warning)
+// and small writes that don't trip the auto-CHECKPOINT threshold are
+// lost on refresh. We persist a companion WAL file in OPFS so writes
+// are durable.
+const WAL_FILE = "current.duckdb.wal";
 const META_KEY = "pegasus-v2f.opfs.duckdb.meta";
 
 export type DuckDBOpfsMeta = {
@@ -52,6 +59,48 @@ export async function getSavedHandle(): Promise<FileSystemFileHandle | null> {
     return await getFileHandle(false);
   } catch {
     return null;
+  }
+}
+
+/** Companion WAL handle. Always create — an empty WAL is the correct
+ *  starting state for a fresh DB, and an existing one is preserved on
+ *  re-attach so unflushed edits survive a refresh. */
+export async function getSavedWalHandle(): Promise<FileSystemFileHandle | null> {
+  if (!isOpfsAvailable()) return null;
+  try {
+    const dir = await getDirHandle(true);
+    return await dir.getFileHandle(WAL_FILE, { create: true });
+  } catch {
+    return null;
+  }
+}
+
+/** Truncate the WAL to empty. Called when we replace the main file
+ *  (load-shared / create-new) so a stale WAL doesn't corrupt the
+ *  fresh DB. */
+export async function resetWal(): Promise<void> {
+  if (!isOpfsAvailable()) return;
+  try {
+    const dir = await getDirHandle(true);
+    const handle = await dir.getFileHandle(WAL_FILE, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(new Uint8Array(0));
+    await writable.close();
+  } catch (err) {
+    console.warn("resetWal failed (continuing):", err);
+  }
+}
+
+/** Remove the WAL file entirely. Called from detachDuckDB. */
+export async function clearWal(): Promise<void> {
+  if (!isOpfsAvailable()) return;
+  try {
+    const dir = await getDirHandle(false);
+    await dir.removeEntry(WAL_FILE);
+  } catch (err) {
+    const name = (err as { name?: string } | null)?.name;
+    if (name === "NotFoundError") return;
+    console.warn("clearWal: failed to remove WAL file (will be overwritten):", err);
   }
 }
 

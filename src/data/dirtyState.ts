@@ -113,7 +113,14 @@ export async function getDirtyState(): Promise<DirtyState> {
   const dirtySources = new Set<string>();
   for (const s of sources) {
     const sig = await computeSourceSig(s.id);
-    if (published.get(s.id) !== sig) dirtySources.add(s.id);
+    const stored = published.get(s.id);
+    if (stored !== sig) {
+      dirtySources.add(s.id);
+      console.warn(
+        `[dirty] ${s.name}: ${!stored ? "no _publish_state row" : "sig differs"}`,
+        { storedLen: stored?.length, sigLen: sig.length },
+      );
+    }
   }
   let hasDeletions = false;
   for (const id of published.keys()) {
@@ -156,4 +163,14 @@ export async function snapshotPublishState(
       "VALUES (1, ?, now())",
     params: [versionKey ?? null],
   });
+  // Force the WAL into the main OPFS file so the snapshot is
+  // durable across a page refresh. Without this, _publish_state
+  // writes can live in the in-memory WAL only (duckdb-wasm's
+  // BROWSER_FSACCESS doesn't register the .wal file), and the dirty
+  // tracker resurrects on next load.
+  try {
+    await ds.exec({ sql: "CHECKPOINT" });
+  } catch (err) {
+    console.warn("CHECKPOINT after snapshotPublishState failed:", err);
+  }
 }

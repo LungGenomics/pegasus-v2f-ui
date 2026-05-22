@@ -1,8 +1,11 @@
 import {
   hasSavedDuckDB,
   getSavedHandle,
+  getSavedWalHandle,
   saveDuckDB,
+  resetWal,
   clearDuckDB,
+  clearWal,
   getMeta,
 } from "./opfs";
 import { ensureSchema } from "./migrations";
@@ -98,8 +101,11 @@ export function initDataSource(): Promise<DataSourceState> {
     try {
       const handle = await getSavedHandle();
       if (!handle) return "none" as const;
+      // Reuse the existing WAL — it holds unflushed edits from the
+      // previous session and must NOT be reset on restore.
+      const walHandle = await getSavedWalHandle();
       const m = await import("./adapters/duckdb-wasm");
-      await m.attachOpfsHandle(handle);
+      await m.attachOpfsHandle(handle, walHandle);
       const ds = new m.DuckDBWasmDataSource();
       await ensureSchema(ds);
       _instance = ds;
@@ -149,6 +155,7 @@ export async function attachDuckDBFile(file: File): Promise<void> {
     await new Promise((r) => setTimeout(r, 200));
     try {
       await clearDuckDB();
+      await clearWal();
     } catch {
       /* removeEntry may also be locked — the retry below will surface it */
     }
@@ -167,8 +174,12 @@ export async function attachDuckDBFile(file: File): Promise<void> {
   }
   const handle = await getSavedHandle();
   if (handle) {
+    // Loading a fresh main file — a stale WAL from a prior session
+    // would corrupt it. Truncate then attach the empty WAL handle.
+    await resetWal();
+    const walHandle = await getSavedWalHandle();
     log("attaching OPFS handle");
-    await m.attachOpfsHandle(handle);
+    await m.attachOpfsHandle(handle, walHandle);
   } else {
     // OPFS unavailable — fall back to in-memory attach (this session only)
     log("OPFS unavailable; in-memory attach");
@@ -188,6 +199,7 @@ export async function detachDuckDB(): Promise<void> {
   const m = await import("./adapters/duckdb-wasm");
   await m.disposeAll();
   await clearDuckDB();
+  await clearWal();
   _instance = null;
   _state = "none";
   _initPromise = null;
@@ -278,6 +290,7 @@ export async function createNewDuckDB(name = "new.duckdb"): Promise<void> {
   await m.disposeAll();
   log("clearing OPFS");
   await clearDuckDB();
+  await clearWal();
 
   log(`fetching empty DuckDB bytes from ${emptyDuckdbUrl}`);
   const res = await fetch(emptyDuckdbUrl);
@@ -301,8 +314,12 @@ export async function createNewDuckDB(name = "new.duckdb"): Promise<void> {
     );
   }
 
+  // Brand-new DB — clear any leftover WAL so it doesn't corrupt the
+  // fresh main file.
+  await resetWal();
+  const walHandle = await getSavedWalHandle();
   log("attaching from OPFS handle");
-  await m.attachOpfsHandle(handle);
+  await m.attachOpfsHandle(handle, walHandle);
   const ds = new m.DuckDBWasmDataSource();
   log("running migrations against OPFS-backed DB");
   await ensureSchema(ds);
