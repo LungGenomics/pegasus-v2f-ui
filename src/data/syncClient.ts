@@ -177,6 +177,55 @@ export interface SyncInfo {
   published_at?: string;
 }
 
+export interface HistoryEntry {
+  key: string;
+  current_key?: string;
+  published_by?: string;
+  published_at?: string;
+  restored_from?: string;
+}
+
+export async function fetchHistory(): Promise<HistoryEntry[]> {
+  const r = await fetch(`${SYNC_BASE}/db/history`, { cache: "no-store" });
+  if (!r.ok) throw new Error(`/db/history failed (${r.status})`);
+  const j = (await r.json()) as { entries: HistoryEntry[] };
+  return j.entries;
+}
+
+export async function restore(key: string): Promise<{ current_key: string }> {
+  const sess = getSyncSession();
+  if (!sess) throw new Error("Not signed in.");
+  const lease = getLease();
+  if (!lease) {
+    throw new Error("No editing lock — acquire one before restoring.");
+  }
+  const r = await fetch(`${SYNC_BASE}/db/restore`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${sess.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ key, lease_token: lease.lease_token }),
+  });
+  if (r.status === 401) clearSessionAnd("Sync session expired — sign in again.");
+  if (r.status === 423) {
+    clearLease();
+    const j = (await r.json().catch(() => ({}))) as { error?: string };
+    throw new Error(j.error ?? "lock lost; re-acquire to restore");
+  }
+  if (!r.ok) {
+    throw new Error(
+      `restore failed (${r.status} ${await r.text().catch(() => "")})`,
+    );
+  }
+  // Worker auto-releases lock on successful restore (same as commit).
+  clearLease();
+  const { latest } = (await r.json()) as {
+    latest: { current_key: string };
+  };
+  return { current_key: latest.current_key };
+}
+
 export async function fetchSyncInfo(): Promise<SyncInfo> {
   const r = await fetch(`${SYNC_BASE}/db/info`, { cache: "no-store" });
   if (!r.ok) throw new Error(`/db/info failed (${r.status})`);

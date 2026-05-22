@@ -7,7 +7,14 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
-import { Plus, Database, FlaskConical, Loader2, UploadCloud } from "lucide-react";
+import {
+  Plus,
+  Database,
+  FlaskConical,
+  Loader2,
+  UploadCloud,
+  History,
+} from "lucide-react";
 import { listSources } from "../../data/sourceOps";
 import {
   getDirtyState,
@@ -25,6 +32,9 @@ import {
   fetchLockHolder,
   getLease,
   heartbeatLock,
+  fetchHistory,
+  restore,
+  type HistoryEntry,
 } from "../../data/syncClient";
 import { AddSource } from "./add-source";
 import { SourceDetailEditor } from "./source-detail";
@@ -35,6 +45,7 @@ import { StudiesList } from "./studies-list";
 export function ConfigWorkspace() {
   const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const selectedSource = params.get("source");
 
   const qc = useQueryClient();
@@ -57,7 +68,15 @@ export function ConfigWorkspace() {
       <SourceDetailEditor
         sourceName={selectedSource}
         onBack={() => setParams({})}
-        onRename={(n) => setParams({ source: n })}
+        onRename={(n) => {
+          // Rename skips the in-editor refetch (it would 404 on the
+          // old name). Invalidate ["config"] at the top so the
+          // Sources list + dirty tracker refresh, then re-point the
+          // route — the new SourceDetailEditor render fetches fresh
+          // under the new key.
+          void qc.invalidateQueries({ queryKey: ["config"] });
+          setParams({ source: n });
+        }}
       />
     );
   }
@@ -143,8 +162,16 @@ export function ConfigWorkspace() {
           dirty={dirtySources}
           onAdd={() => setAdding(true)}
           onOpen={(name) => setParams({ source: name })}
+          onShowHistory={() => setHistoryOpen(true)}
         />
       )}
+      <HistoryPanel
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onAfterChange={async () => {
+          await qc.invalidateQueries();
+        }}
+      />
     </div>
   );
 }
@@ -397,18 +424,151 @@ function DirtyBar({
   );
 }
 
+function HistoryPanel({
+  open,
+  onClose,
+  onAfterChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onAfterChange: () => Promise<void>;
+}) {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["sync", "history"],
+    queryFn: fetchHistory,
+    enabled: open,
+  });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (!open) return null;
+
+  const doRestore = async (entry: HistoryEntry) => {
+    const key = entry.current_key;
+    if (!key) return;
+    if (
+      !window.confirm(
+        `Restore ${key}?\n\nThis will advance the shared pointer to that version and re-pull it locally — your current working copy will be replaced.`,
+      )
+    )
+      return;
+    setErr(null);
+    setBusy(key);
+    try {
+      // Take the lock if we don't already hold it.
+      if (!getLease()) await acquireLock();
+      await restore(key);
+      // Re-pull the now-restored shared DB so local matches; this
+      // also re-baselines the dirty tracker for free.
+      await loadSharedDuckDB();
+      await qc.invalidateQueries();
+      await onAfterChange();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div
+      className="modal modal-open"
+      role="dialog"
+      onClick={onClose}
+    >
+      <div
+        className="modal-box max-w-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="font-semibold mb-3">Publish history</h3>
+        {q.isLoading && (
+          <div className="text-sm text-base-content/40">Loading…</div>
+        )}
+        {q.error && (
+          <div className="alert alert-error text-sm">
+            {(q.error as Error).message}
+          </div>
+        )}
+        {err && <div className="alert alert-error text-sm">{err}</div>}
+        {q.data && q.data.length === 0 && (
+          <div className="text-sm text-base-content/50">
+            No published versions yet.
+          </div>
+        )}
+        <ul className="divide-y divide-base-200 text-sm max-h-[60vh] overflow-auto">
+          {(q.data ?? []).map((entry) => {
+            const ts = entry.published_at
+              ? new Date(entry.published_at).toLocaleString()
+              : entry.key;
+            const restoreKey = entry.current_key;
+            return (
+              <li
+                key={entry.key}
+                className="py-2 flex items-center gap-2"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate flex items-center gap-2">
+                    {ts}
+                    {entry.restored_from && (
+                      <span className="badge badge-xs badge-info">restore</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-base-content/50 truncate">
+                    by <code className="font-mono">@{entry.published_by ?? "?"}</code>
+                    {restoreKey && <> · <code className="font-mono">{restoreKey}</code></>}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-xs"
+                  onClick={() => void doRestore(entry)}
+                  disabled={busy !== null || !restoreKey}
+                  title={
+                    !restoreKey
+                      ? "this entry has no version key"
+                      : "Restore this version"
+                  }
+                >
+                  {busy === restoreKey && (
+                    <Loader2 className="size-3 animate-spin" />
+                  )}
+                  Restore
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="modal-action">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={onClose}
+            disabled={busy !== null}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SourcesTab({
   sources,
   loading,
   dirty,
   onAdd,
   onOpen,
+  onShowHistory,
 }: {
   sources: import("../../api/types").ConfigSource[];
   loading: boolean;
   dirty: Set<string>;
   onAdd: () => void;
   onOpen: (name: string) => void;
+  onShowHistory: () => void;
 }) {
   return (
     <div>
@@ -418,6 +578,15 @@ function SourcesTab({
           {sources.length} source{sources.length === 1 ? "" : "s"}
         </span>
         <div className="flex-1" />
+        <button
+          type="button"
+          onClick={onShowHistory}
+          className="btn btn-sm btn-ghost gap-1"
+          title="Past published versions of the shared database"
+        >
+          <History className="size-3.5" />
+          History
+        </button>
         <button
           type="button"
           onClick={onAdd}
