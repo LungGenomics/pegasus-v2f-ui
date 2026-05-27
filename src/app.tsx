@@ -40,11 +40,9 @@ export function App() {
   );
 
   const location = useLocation();
+  // New IA pages are all workspace-style (full width). Landing manages its
+  // own centered layout, so it gets no padding.
   const isLanding = location.pathname === "/";
-  const isFullWidth =
-    isLanding ||
-    location.pathname.startsWith("/sources") ||
-    location.pathname.startsWith("/config");
 
   if (!booted) {
     return (
@@ -59,7 +57,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-base-200">
+    <div className="min-h-screen bg-base-100">
       <Navbar />
       {syncError && (
         <div
@@ -76,15 +74,9 @@ export function App() {
           </button>
         </div>
       )}
-      {isFullWidth ? (
-        <main className={isLanding ? "" : "px-6 py-6"}>
-          <AppRoutes />
-        </main>
-      ) : (
-        <main className="container mx-auto px-4 py-6">
-          <AppRoutes />
-        </main>
-      )}
+      <main className={isLanding ? "" : "px-6 py-6"}>
+        <AppRoutes />
+      </main>
     </div>
   );
 }

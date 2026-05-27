@@ -1,29 +1,26 @@
 import { Link, NavLink } from "react-router";
-import { DataSourcePicker } from "../data-source-picker";
 
 const links = [
-  { to: "/", label: "Traits" },
-  { to: "/genes", label: "Genes" },
   { to: "/sources", label: "Sources" },
-  { to: "/config", label: "Config" },
-  { to: "/query", label: "Query" },
-  { to: "/settings", label: "Settings" },
+  { to: "/explore", label: "Explore" },
+  { to: "/database", label: "Database" },
 ];
 
 export function Navbar() {
   return (
-    <nav className="border-b border-base-300 bg-base-100">
-      <div className="flex items-center h-12 px-6 w-full">
-        <Link to="/" className="text-xl font-thin text-primary tracking-wide">
-          PEGASUS
+    <nav className="bg-base-100">
+      <div className="flex items-center h-13 px-6 w-full">
+        <Link to="/" className="text-xl font-thin tracking-wide">
+          <span className="text-primary font-normal">pegasus</span>
+          <span className="text-base-content/30">.</span>
+          <span className="text-base-content/50">v2f</span>
         </Link>
         <div className="flex-1" />
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6.5">
           {links.map((link) => (
             <NavLink
               key={link.to}
               to={link.to}
-              end={link.to === "/"}
               className={({ isActive }) =>
                 `text-sm ${isActive ? "text-primary font-medium" : "text-base-content/60 hover:text-base-content"}`
               }
@@ -31,9 +28,6 @@ export function Navbar() {
               {link.label}
             </NavLink>
           ))}
-          <div className="ml-4 border-l border-base-300 pl-4">
-            <DataSourcePicker />
-          </div>
         </div>
       </div>
     </nav>

@@ -159,3 +159,38 @@ export async function ingestRawFile(
 ): Promise<LoadResult> {
   return writeRawTable(source, await prepareFromFile(source, file));
 }
+
+export interface RawPreview {
+  columns: string[];
+  rows: Record<string, unknown>[];
+}
+
+/** Read a small sample of a not-yet-ingested source for preview. Registers
+ *  the bytes under a fixed scratch name, SELECTs a LIMITed sample (no
+ *  permanent table), then drops the registered file. Used by the add-source
+ *  panel before the user commits the ingest. */
+export async function previewRaw(
+  input: Pick<ConfigSource, "source_type" | "url" | "sheet" | "skip_rows">,
+  file: File | null,
+  limit = 50,
+): Promise<RawPreview> {
+  // Fixed scratch name so name edits don't re-trigger the preview and so it
+  // never clashes with a real raw table.
+  const pseudo = { ...input, name: "_preview" } as ConfigSource;
+  const fetched = file
+    ? await prepareFromFile(pseudo, file)
+    : await fetchAndPrepare(pseudo);
+
+  const ds = getDataSource();
+  const adapter = await import("../adapters/duckdb-wasm");
+  await adapter.registerSourceBytes(fetched.registerAs, fetched.bytes);
+  try {
+    const rows = await ds.query<Record<string, unknown>>({
+      sql: `SELECT * FROM ${fetched.readExpr} LIMIT ${limit}`,
+    });
+    const columns = rows.length > 0 ? Object.keys(rows[0]!) : [];
+    return { columns, rows };
+  } finally {
+    await adapter.dropRegisteredFile(fetched.registerAs).catch(() => {});
+  }
+}

@@ -1,48 +1,21 @@
-import { Routes, Route, Navigate, useParams, useSearchParams } from "react-router";
-import { useStudies } from "./api/studies";
-import { TraitsLandingPage } from "./pages/traits-landing";
-import { TraitDetailPage } from "./pages/trait-detail";
-import { GenesPage } from "./pages/genes";
-import { GeneDetailPage } from "./pages/gene-detail";
-import { ConfigWorkspace } from "./pages/config";
-import { SourcesCatalog } from "./pages/sources-catalog";
-import { QueryPage } from "./pages/query";
-import { SettingsPage } from "./pages/settings";
-import { Loading } from "./components/loading";
+import { Routes, Route, Navigate } from "react-router";
+import { LandingPage } from "./pages/landing";
+import { SourcesPage } from "./pages/sources";
+import { ExplorePage } from "./pages/explore";
+import { DatabasePage } from "./pages/database";
 
-/** Redirects /studies/:studyId → /traits/:trait, preserving query params. */
-function StudyRedirect() {
-  const { "*": studyId } = useParams();
-  const [searchParams] = useSearchParams();
-  const { data: studies, isLoading } = useStudies();
-
-  if (isLoading) return <Loading />;
-
-  const study = studies?.find((s) => s.study_id === studyId);
-  if (study) {
-    const params = searchParams.toString();
-    const target = `/traits/${encodeURIComponent(study.trait)}${params ? `?${params}` : ""}`;
-    return <Navigate to={target} replace />;
-  }
-
-  // Unknown study — fall back to landing
-  return <Navigate to="/" replace />;
-}
-
+// Redesigned IA: a landing/home at index, plus the three main surfaces
+// (Sources · Explore · Database). The old IA's pages (traits/genes/config/
+// query/settings/sources-catalog) remain in src/pages for porting but are no
+// longer routed.
 export function AppRoutes() {
   return (
     <Routes>
-      <Route index element={<TraitsLandingPage />} />
-      <Route path="traits/:trait" element={<TraitDetailPage />} />
-      <Route path="genes" element={<GenesPage />} />
-      <Route path="genes/:gene" element={<GeneDetailPage />} />
-      <Route path="sources" element={<SourcesCatalog />} />
-      <Route path="config" element={<ConfigWorkspace />} />
-      <Route path="query" element={<QueryPage />} />
-      <Route path="settings" element={<SettingsPage />} />
-      {/* Legacy redirects */}
-      <Route path="studies" element={<Navigate to="/" replace />} />
-      <Route path="studies/*" element={<StudyRedirect />} />
+      <Route index element={<LandingPage />} />
+      <Route path="sources" element={<SourcesPage />} />
+      <Route path="explore" element={<ExplorePage />} />
+      <Route path="database" element={<DatabasePage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

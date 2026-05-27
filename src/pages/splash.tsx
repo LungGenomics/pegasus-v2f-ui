@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Upload, Database, HardDrive, Zap, Plus, Cloud } from "lucide-react";
+import { UploadCloud, Database, HardDrive, Zap, Plus, Cloud } from "lucide-react";
 import {
   attachDuckDBFile,
   createNewDuckDB,
@@ -86,14 +86,16 @@ export function SplashPage() {
   };
 
   return (
-    <div className="min-h-screen bg-base-200 flex items-center justify-center px-6 py-12">
+    <div className="min-h-screen bg-base-100 flex items-center justify-center px-6 py-12">
       <div className="max-w-2xl w-full">
         <div className="text-center mb-10">
-          <h1 className="text-5xl font-thin text-primary tracking-wide mb-2">
-            PEGASUS
+          <h1 className="text-6xl font-thin tracking-wide mb-6">
+            <span className="text-primary font-[250]">pegasus</span>
+            <span className="text-base-content/30">.</span>
+            <span className="text-base-content/50 font-thin">v2f</span>
           </h1>
-          <p className="text-base-content/60 text-sm tracking-wider uppercase">
-            Variant-to-Function Explorer
+          <p className="text-base font-normal text-base-content/50 max-w-2xl mx-auto">
+            A workspace for building, exploring, and sharing variant-to-function evidence.
           </p>
         </div>
 
@@ -103,11 +105,11 @@ export function SplashPage() {
           onDragLeave={onDragLeave}
           onDrop={onDrop}
           className={`
-            relative cursor-pointer rounded-2xl border-2 border-dashed transition-all
+            relative cursor-pointer rounded-lg border-2 border-dashed transition-colors
             ${
               dragActive
                 ? "border-primary bg-primary/5"
-                : "border-base-300 bg-base-100 hover:border-primary/50 hover:bg-base-100"
+                : "border-base-300 hover:border-primary/50"
             }
             ${busy ? "opacity-60 cursor-wait" : ""}
             px-8 py-14 text-center
@@ -120,7 +122,7 @@ export function SplashPage() {
             className="hidden"
             onChange={onPickFile}
           />
-          <Upload className="size-10 mx-auto mb-4 text-base-content/40" />
+          <UploadCloud className="size-10 mx-auto mb-4 text-base-content/30" />
           <div className="text-lg font-medium mb-1">
             {busy ? "Loading…" : "Drop a .duckdb file here"}
           </div>
