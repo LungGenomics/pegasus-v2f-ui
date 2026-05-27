@@ -46,7 +46,7 @@ export function App() {
 
   if (!booted) {
     return (
-      <div className="min-h-screen bg-base-200 flex items-center justify-center">
+      <div className="min-h-screen bg-base-100 flex items-center justify-center">
         <div className="text-sm text-base-content/60">Loading…</div>
       </div>
     );

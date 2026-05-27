@@ -314,9 +314,12 @@ export interface ConfigSource {
    *  getSource via a LEFT JOIN. */
   citation?: SourceCitation;
   /** Declared trait associations — `config.source_traits` rows. For
-   *  sources whose trait is per-row, derivations carry that info
+   *  sources whose trait is per-row, the mapping carries that info
    *  instead and this stays empty. */
   trait_ids?: string[];
+  /** Source-level transform pipeline (cleans the raw). Loaded by
+   *  getSource / listSourceTransforms. */
+  transforms?: ConfigSourceTransform[];
 }
 
 export interface SourceCitation {
@@ -330,43 +333,51 @@ export interface SourceCitation {
   updated_at?: string;
 }
 
-export type DerivationRole = "evidence" | "loci_definition";
-export type DerivationCentric = "variant" | "gene";
-export type DerivationTraitScope = "constant" | "column";
+export type MappingTarget = "evidence" | "loci";
+export type MappingCentric = "variant" | "gene";
+export type MappingTraitScope = "constant" | "column";
 
-export interface ConfigDerivation {
-  id: string;
-  source_id: string;
-  source_tag: string;
-  display_name?: string;
-  role: DerivationRole;
-  evidence_category: string;
-  centric: DerivationCentric;
-  trait_scope: DerivationTraitScope;
-  row_version?: number;
-  created_at?: string;
-  updated_at?: string;
-  /** Loaded by getDerivation / listDerivationsForSource. */
-  mappings?: DerivationMapping[];
-  transforms?: DerivationTransform[];
-  /** When trait_scope = 'constant'. */
-  trait_ids?: string[];
-  /** When trait_scope = 'column'. */
-  trait_column?: DerivationTraitColumn;
-}
-
-export interface DerivationMapping {
-  canonical_field: string;
-  raw_column: string;
-}
-
-export interface DerivationTransform {
+/** Transform DSL step that cleans the raw table. Source-level — shared by
+ *  all of the source's mappings (config.source_transforms). */
+export interface ConfigSourceTransform {
   seq: number;
   type: string;
   params: Record<string, unknown>;
 }
 
-export interface DerivationTraitColumn {
+/** The projection unit (replaces ConfigDerivation): a cleaned source →
+ *  one output stream. target='evidence' emits evidence rows; target='loci'
+ *  builds loci with per-mapping window/merge. */
+export interface ConfigMapping {
+  id: string;
+  source_id: string;
+  source_tag: string;
+  display_name?: string;
+  target: MappingTarget;
+  /** Set when target='evidence'. */
+  evidence_category?: string;
+  centric?: MappingCentric;
+  trait_scope?: MappingTraitScope;
+  /** Set when target='loci' (per-mapping loci resolution). */
+  window_kb?: number;
+  merge_distance_kb?: number;
+  row_version?: number;
+  created_at?: string;
+  updated_at?: string;
+  /** Loaded by getMapping / listMappingsForSource. */
+  fields?: MappingField[];
+  /** When trait_scope = 'constant'. */
+  trait_ids?: string[];
+  /** When trait_scope = 'column'. */
+  trait_column?: MappingTraitColumn;
+}
+
+export interface MappingField {
+  canonical_field: string;
+  raw_column: string;
+}
+
+export interface MappingTraitColumn {
   raw_column: string;
   trait_id_lookup?: string;
 }

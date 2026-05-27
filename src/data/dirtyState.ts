@@ -10,7 +10,8 @@
 
 import { getDataSource } from "./select";
 import { listSources } from "./sourceOps";
-import { listDerivationsForSource } from "./derivationOps";
+import { listMappingsForSource } from "./mappingOps";
+import { listSourceTransforms } from "./sourceTransformOps";
 
 /** Deterministic JSON: object keys sorted recursively. */
 function canon(v: unknown): string {
@@ -49,24 +50,29 @@ export async function computeSourceSig(
   });
   if (!src) return "";
 
-  const derivations = await listDerivationsForSource(sourceId);
-  const derivSig = derivations
-    .map((d) => ({
-      source_tag: d.source_tag,
-      role: d.role,
-      evidence_category: d.evidence_category,
-      centric: d.centric,
-      trait_scope: d.trait_scope,
-      display_name: d.display_name ?? null,
-      row_version: d.row_version ?? null,
-      mappings: [...(d.mappings ?? [])].sort((a, b) =>
+  const [transforms, mappings] = await Promise.all([
+    listSourceTransforms(sourceId),
+    listMappingsForSource(sourceId),
+  ]);
+  const transformSig = [...transforms].sort(
+    (a, b) => (a.seq ?? 0) - (b.seq ?? 0),
+  );
+  const mappingSig = mappings
+    .map((m) => ({
+      source_tag: m.source_tag,
+      target: m.target,
+      evidence_category: m.evidence_category ?? null,
+      centric: m.centric ?? null,
+      trait_scope: m.trait_scope ?? null,
+      window_kb: m.window_kb ?? null,
+      merge_distance_kb: m.merge_distance_kb ?? null,
+      display_name: m.display_name ?? null,
+      row_version: m.row_version ?? null,
+      fields: [...(m.fields ?? [])].sort((a, b) =>
         a.canonical_field.localeCompare(b.canonical_field),
       ),
-      transforms: [...(d.transforms ?? [])].sort(
-        (a, b) => (a.seq ?? 0) - (b.seq ?? 0),
-      ),
-      trait_ids: [...(d.trait_ids ?? [])].sort(),
-      trait_column: d.trait_column ?? null,
+      trait_ids: [...(m.trait_ids ?? [])].sort(),
+      trait_column: m.trait_column ?? null,
     }))
     .sort((a, b) => a.source_tag.localeCompare(b.source_tag));
 
@@ -80,7 +86,8 @@ export async function computeSourceSig(
     skip_rows: src.skip_rows ?? 0,
     row_version: src.row_version ?? 0,
     raw_version: src.raw_version ?? 0,
-    derivations: derivSig,
+    transforms: transformSig,
+    mappings: mappingSig,
   });
 }
 
