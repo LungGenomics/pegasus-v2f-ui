@@ -40,11 +40,16 @@ function traitIdExpr(traitId: string | null): string {
   return traitId ? `CAST(${strLit(traitId)} AS UUID) AS trait_id` : `NULL AS trait_id`;
 }
 
-/** SELECT(s) projecting one mapping into the canonical evidence shape. A
- *  constant mapping with N traits returns N SELECTs (one row per trait);
- *  every other case returns exactly one. Returns [] for a mapping that can't
- *  project (e.g. no fields yet). */
-function projectionsFor(mapping: ConfigMapping, pipeline: string): string[] {
+/** SELECT(s) projecting one mapping into the canonical evidence shape (the 15
+ *  columns), reading from its transform-cleaned `pipeline` SQL. A constant
+ *  mapping with N traits returns N SELECTs (one row per trait); every other
+ *  case returns exactly one. Shared by the evidence view (evidence mappings)
+ *  and the loci builder (loci mappings project the same canonical shape to
+ *  get chromosome/position/rsid/pvalue for window+merge). */
+export function mappingProjections(
+  mapping: ConfigMapping,
+  pipeline: string,
+): string[] {
   const cols = CANONICAL_FIELDS.map((f) => fieldExpr(mapping, f));
   const tail = [
     `${strLit(mapping.evidence_category ?? "")} AS evidence_category`,
@@ -96,7 +101,7 @@ export async function buildEvidenceView(): Promise<void> {
     if (evMappings.length === 0) continue;
     const pipeline = await buildTransformedPipeline(src.id);
     for (const m of evMappings) {
-      selects.push(...projectionsFor(m, pipeline));
+      selects.push(...mappingProjections(m, pipeline));
     }
   }
 

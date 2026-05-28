@@ -119,9 +119,12 @@ export async function buildLocusEvidenceView(): Promise<void> {
     `  FROM main.loci l ` +
     `  JOIN main.evidence e ` +
     `    ON e.chromosome = l.chromosome ` +
-    `    AND e.position >= l.start_position ` +
-    `    AND e.position <= l.end_position ` +
-    `  WHERE e.chromosome IS NOT NULL AND e.position IS NOT NULL` +
+    // TRY_CAST: evidence.position is the un-cast raw column (may hold 'NA'
+    // etc.); a bare comparison against the BIGINT locus bounds would abort.
+    `    AND TRY_CAST(e.position AS BIGINT) >= l.start_position ` +
+    `    AND TRY_CAST(e.position AS BIGINT) <= l.end_position ` +
+    `  WHERE e.chromosome IS NOT NULL ` +
+    `    AND TRY_CAST(e.position AS BIGINT) IS NOT NULL` +
     `), ` +
     `locus_genes AS (` +
     `  SELECT locus_id, gene_symbol FROM cand ` +

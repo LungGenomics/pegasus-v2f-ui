@@ -3,8 +3,10 @@
 // locus_evidence. Port of the deleted dd2f1fb~1:src/data/pipeline/loci.ts,
 // adapted to the redesigned schema (plan 2026-05-28):
 //   - per loci-target MAPPING (not derivation)
-//   - reads variants from the `main.evidence` VIEW (filtered to the mapping's
-//     source_tag), so buildEvidenceView() must run first
+//   - reads variants from the loci mapping's OWN canonical projection
+//     (mappingProjections) — NOT main.evidence, which contains only
+//     evidence-target mappings. A loci mapping projects chromosome/position/
+//     rsid/pvalue from its (transform-cleaned) source for window+merge.
 //   - window/merge are per-mapping (config.mappings.window_kb /
 //     merge_distance_kb), falling back to pegasus_settings defaults
 //   - lead variant = lowest p-value; NULL when the source has no pvalue
@@ -14,6 +16,9 @@
 import { getDataSource } from "../select";
 import { listSources } from "../sourceOps";
 import { listMappingsForSource } from "../mappingOps";
+import { buildTransformedPipeline } from "../rawData";
+import { mappingProjections } from "./evidence";
+import type { ConfigMapping } from "../../api/types";
 
 const MAIN_LOCI_DDL = `CREATE TABLE IF NOT EXISTS main.loci (
   locus_id          VARCHAR PRIMARY KEY,
@@ -51,6 +56,7 @@ async function defaults(): Promise<{ window_kb: number; merge_kb: number }> {
 async function buildOne(
   sourceName: string,
   sourceTag: string,
+  variantsSql: string,
   windowKb: number,
   mergeKb: number,
 ): Promise<BuildLociResult> {
@@ -63,19 +69,21 @@ async function buildOne(
     params: [sourceTag],
   });
 
-  // Window + gap-and-island merge in one CTE chain. ARG_MIN picks the
+  // Window + gap-and-island merge in one CTE chain over the loci mapping's
+  // own projection (chromosome/position/rsid/pvalue). ARG_MIN picks the
   // rsid/position of the lowest-pvalue variant per merged group as the lead;
   // when every pvalue is NULL, ARG_MIN returns NULL → lead stays NULL.
   const sql = `
     WITH variants AS (
+      -- TRY_CAST so dirty sentinels (e.g. position 'NA') become NULL and drop
+      -- out below rather than aborting the whole build.
       SELECT chromosome,
-             CAST(position AS BIGINT) AS position,
+             TRY_CAST(position AS BIGINT) AS position,
              CAST(rsid AS VARCHAR) AS rsid,
-             CAST(pvalue AS DOUBLE) AS pvalue
-      FROM main.evidence
-      WHERE source_tag = ?
-        AND chromosome IS NOT NULL
-        AND position IS NOT NULL
+             TRY_CAST(pvalue AS DOUBLE) AS pvalue
+      FROM (${variantsSql}) _proj
+      WHERE chromosome IS NOT NULL
+        AND TRY_CAST(position AS BIGINT) IS NOT NULL
     ),
     windows AS (
       SELECT chromosome, position, rsid, pvalue,
@@ -119,7 +127,7 @@ async function buildOne(
   `;
   await ds.exec({
     sql,
-    params: [sourceTag, sourceName, sourceTag],
+    params: [sourceName, sourceTag],
   });
 
   const [c] = await ds.query<{ n: number }>({
@@ -129,8 +137,9 @@ async function buildOne(
   return { source_tag: sourceTag, loci: Number(c?.n ?? 0) };
 }
 
-/** Rebuild main.loci for every loci-target mapping. Reads from main.evidence,
- *  so buildEvidenceView() must have run. Returns per-source counts. */
+/** Rebuild main.loci for every loci-target mapping, from each mapping's own
+ *  projected variants (independent of main.evidence). Returns per-source
+ *  counts. A loci mapping that can't project (e.g. no fields) yields 0 loci. */
 export async function buildLoci(): Promise<BuildLociResult[]> {
   const ds = getDataSource();
   await ds.exec({ sql: MAIN_LOCI_DDL });
@@ -140,11 +149,20 @@ export async function buildLoci(): Promise<BuildLociResult[]> {
   const results: BuildLociResult[] = [];
   for (const src of sources) {
     const mappings = await listMappingsForSource(src.id);
-    for (const m of mappings.filter((x) => x.target === "loci")) {
+    const lociMappings = mappings.filter((x) => x.target === "loci");
+    if (lociMappings.length === 0) continue;
+    const pipeline = await buildTransformedPipeline(src.id);
+    for (const m of lociMappings) {
+      const variantsSql = lociVariantsSql(m, pipeline);
+      if (!variantsSql) {
+        results.push({ source_tag: m.source_tag, loci: 0 });
+        continue;
+      }
       results.push(
         await buildOne(
           src.name,
           m.source_tag,
+          variantsSql,
           m.window_kb ?? window_kb,
           m.merge_distance_kb ?? merge_kb,
         ),
@@ -152,4 +170,16 @@ export async function buildLoci(): Promise<BuildLociResult[]> {
     }
   }
   return results;
+}
+
+/** The loci mapping's canonical projection (its variants), or null if it
+ *  can't project. Usually one SELECT; a constant multi-trait mapping would
+ *  fan out, but loci only read chromosome/position so the UNION is harmless. */
+function lociVariantsSql(
+  mapping: ConfigMapping,
+  pipeline: string,
+): string | null {
+  const projections = mappingProjections(mapping, pipeline);
+  if (projections.length === 0) return null;
+  return projections.join(" UNION ALL ");
 }

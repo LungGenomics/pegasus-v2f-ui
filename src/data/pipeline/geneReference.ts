@@ -14,10 +14,12 @@
 
 import { getDataSource } from "../select";
 
-// Module-level: which URL the current main.gene_reference was loaded from.
-// Lets ensureGeneReference no-op when already loaded and reload when the
-// setting changes mid-session.
-let loadedUrl: string | null = null;
+// The gene reference is infrastructure, not user config — its URL is a
+// built-in constant (the hg38 GENCODE parquet on the project R2 bucket, same
+// bucket as the DB sync). config.pegasus_settings.gene_reference_url is an
+// optional override for swapping builds, not something a user normally sets.
+export const DEFAULT_GENE_REFERENCE_URL =
+  "https://pub-3dbe6972d0bd4328a532eba3d5fa449d.r2.dev/reference/gencode_genes_hg38.parquet";
 
 const REGISTER_NAME = "_gene_reference.parquet";
 
@@ -31,40 +33,56 @@ async function tableExists(name: string): Promise<boolean> {
   }
 }
 
-/** Read the configured gene-reference URL, or null if unset. */
-export async function getGeneReferenceUrl(): Promise<string | null> {
+/** The effective gene-reference URL: the optional settings override, else the
+ *  built-in default. */
+export async function getGeneReferenceUrl(): Promise<string> {
   const ds = getDataSource();
   const [row] = await ds.query<{ gene_reference_url: string | null }>({
     sql: "SELECT gene_reference_url FROM config.pegasus_settings WHERE id = 1",
   });
-  return row?.gene_reference_url ?? null;
+  return row?.gene_reference_url || DEFAULT_GENE_REFERENCE_URL;
 }
 
-/** Ensure main.gene_reference is loaded from the configured URL. Idempotent:
- *  no-ops when already loaded from the same URL, reloads when it changed.
- *  Throws if no URL is configured (caller decides whether that's fatal).
- *  Returns the row count. */
+/** Whether main.gene_reference is already loaded (non-empty). */
+export async function geneReferenceLoaded(): Promise<boolean> {
+  const ds = getDataSource();
+  if (!(await tableExists("gene_reference"))) return false;
+  const [c] = await ds.query<{ n: number }>({
+    sql: "SELECT COUNT(*) AS n FROM main.gene_reference",
+  });
+  return Number(c?.n ?? 0) > 0;
+}
+
+/** Distinct biotypes in the loaded gene reference, by descending gene count.
+ *  Empty when the reference isn't loaded yet. Drives the biotype picker. */
+export async function listGeneBiotypes(): Promise<
+  Array<{ gene_type: string; n: number }>
+> {
+  if (!(await geneReferenceLoaded())) return [];
+  const ds = getDataSource();
+  return ds.query<{ gene_type: string; n: number }>({
+    sql:
+      "SELECT gene_type, COUNT(*) AS n FROM main.gene_reference " +
+      "GROUP BY gene_type ORDER BY n DESC",
+  });
+}
+
+/** Ensure main.gene_reference is loaded. The FULL parquet (all biotypes) is
+ *  fetched once and materialized; biotype filtering happens later in the
+ *  locus_evidence view, so changing biotypes never refetches. Skips the fetch
+ *  when the table is already present (persists in OPFS across reloads) unless
+ *  `force` (e.g. the parquet was rebuilt upstream). Returns the row count. */
 export async function ensureGeneReference(force = false): Promise<number> {
   const ds = getDataSource();
-  const url = await getGeneReferenceUrl();
-  if (!url) {
-    throw new Error(
-      "No gene_reference_url set in config.pegasus_settings — build + upload " +
-        "the gene parquet (scripts/build_gene_reference.py) and set the URL.",
-    );
-  }
 
-  if (
-    !force &&
-    loadedUrl === url &&
-    (await tableExists("gene_reference"))
-  ) {
+  if (!force && (await geneReferenceLoaded())) {
     const [c] = await ds.query<{ n: number }>({
       sql: "SELECT COUNT(*) AS n FROM main.gene_reference",
     });
     return Number(c?.n ?? 0);
   }
 
+  const url = await getGeneReferenceUrl();
   // Fetch the bytes and register them so read_parquet can see the file
   // (same fetch→register pattern as the raw loader — avoids relying on
   // httpfs being available in the WASM bundle).
@@ -86,7 +104,6 @@ export async function ensureGeneReference(force = false): Promise<number> {
     await adapter.dropRegisteredFile(REGISTER_NAME).catch(() => {});
   }
 
-  loadedUrl = url;
   const [c] = await ds.query<{ n: number }>({
     sql: "SELECT COUNT(*) AS n FROM main.gene_reference",
   });
