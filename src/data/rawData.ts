@@ -39,6 +39,9 @@ export interface RawPageRequest {
   orderBy?: string;
   dir?: "asc" | "desc";
   filters?: RawColumnFilter[];
+  /** Global case-insensitive substring search across the given columns
+   *  (OR-joined), ANDed with any per-column `filters`. */
+  search?: { query: string; columns: string[] };
 }
 
 export interface RawPage {
@@ -103,21 +106,25 @@ export async function getRawPage(
   const ds = getDataSource();
   const tbl = `main.${ident(rawTableName(sourceId))}`;
 
-  const where =
-    req.filters && req.filters.length > 0
-      ? "WHERE " +
-        req.filters
-          .filter((f) => f.contains.trim() !== "")
-          .map(
-            (f) =>
-              `CAST(${ident(f.column)} AS VARCHAR) ILIKE ${strLit(
-                `%${f.contains}%`,
-              )}`,
-          )
-          .join(" AND ")
-      : "";
-  // An all-empty filter list collapses to "WHERE" — guard that.
-  const whereClause = where === "WHERE " ? "" : where;
+  const clauses: string[] = [];
+  for (const f of req.filters ?? []) {
+    if (f.contains.trim() === "") continue;
+    clauses.push(
+      `CAST(${ident(f.column)} AS VARCHAR) ILIKE ${strLit(`%${f.contains}%`)}`,
+    );
+  }
+  if (
+    req.search &&
+    req.search.query.trim() !== "" &&
+    req.search.columns.length > 0
+  ) {
+    const q = req.search.query.trim();
+    const inner = req.search.columns
+      .map((c) => `CAST(${ident(c)} AS VARCHAR) ILIKE ${strLit(`%${q}%`)}`)
+      .join(" OR ");
+    clauses.push(`(${inner})`);
+  }
+  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 
   const order = req.orderBy
     ? `ORDER BY ${ident(req.orderBy)} ${req.dir === "desc" ? "DESC" : "ASC"}`
@@ -133,3 +140,4 @@ export async function getRawPage(
   });
   return { rows, total: Number(n ?? 0) };
 }
+

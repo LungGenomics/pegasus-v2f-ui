@@ -1,19 +1,21 @@
-// Sources tab (redesign) — full-width two-column workspace (BEDbase-workbench
-// style): left = list of sources, right = the area to work on the selected
-// one. Selection is held in URL state (?source=name) so refresh keeps it.
-// The right-pane authoring (raw grid → transforms → mappings) is a placeholder
-// for now; the add flow reuses the existing ingest-on-add component.
+// Sources tab (redesign) — full-width workspace. Left = source list, which
+// collapses to a thin strip once a source is selected so the work-area (table
+// + inspector) gets the room; click the strip to re-expand. Selection is held
+// in URL state (?source=name) so refresh keeps it. Right pane: the add panel
+// (adding) or the source work-area (a source is selected).
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
-import { Plus, Database } from "lucide-react";
+import { Plus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { listSources } from "../data/sourceOps";
 import { AddSourcePanel } from "./sources-add";
+import { SourceWorkArea } from "./source-workarea";
 
 export function SourcesPage() {
   const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const qc = useQueryClient();
   const selected = params.get("source");
 
@@ -23,61 +25,98 @@ export function SourcesPage() {
   });
   const sources = sourcesQ.data ?? [];
 
+  // The list collapses to a strip only when a source is being worked on.
+  const showStrip = collapsed && !!selected && !adding;
+
+  const selectSource = (name: string) => {
+    setAdding(false);
+    setParams({ source: name });
+  };
+  const startAdd = () => {
+    setAdding(true);
+    setParams({});
+  };
+
   return (
-    <div className="grid gap-6 grid-cols-[minmax(220px,340px)_1fr]">
-      {/* Left: source list */}
-      <div className="self-start border border-base-300 rounded-lg p-3">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-semibold text-base-content/50 uppercase tracking-wide">
-            {sources.length} {sources.length === 1 ? "Source" : "Sources"}
-          </span>
+    <div
+      className={`grid gap-6 ${
+        showStrip ? "grid-cols-[3rem_1fr]" : "grid-cols-[minmax(220px,340px)_1fr]"
+      }`}
+    >
+      {showStrip ? (
+        /* Collapsed strip */
+        <div className="self-start border border-base-300 rounded-lg p-1.5 flex flex-col items-center gap-1.5">
           <button
             type="button"
-            onClick={() => {
-              setAdding(true);
-              setParams({});
-            }}
-            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer"
+            onClick={() => setCollapsed(false)}
+            title="Expand sources"
+            className="p-1.5 rounded-md hover:bg-base-200 text-base-content/60 cursor-pointer"
           >
-            <Plus className="size-3.5" />
-            Add
+            <PanelLeftOpen className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={startAdd}
+            title="Add source"
+            className="p-1.5 rounded-md hover:bg-base-200 text-primary cursor-pointer"
+          >
+            <Plus className="size-4" />
           </button>
         </div>
-
-        {sourcesQ.isLoading ? (
-          <p className="text-xs text-base-content/40 px-2 py-1">Loading…</p>
-        ) : sources.length === 0 ? (
-          <p className="text-xs text-base-content/40 px-2 py-1">No sources yet.</p>
-        ) : (
-          <div className="flex flex-col gap-0.5">
-            {sources.map((s) => {
-              const isActive = !adding && s.name === selected;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => {
-                    setAdding(false);
-                    setParams({ source: s.name });
-                  }}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-left transition-colors cursor-pointer ${
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "hover:bg-base-200 text-base-content"
-                  }`}
-                >
-                  <Database
-                    className={`size-3.5 shrink-0 ${isActive ? "text-primary" : "text-base-content/40"}`}
-                  />
-                  <span className="text-sm truncate flex-1">
-                    {s.display_name || s.name}
-                  </span>
-                </button>
-              );
-            })}
+      ) : (
+        /* Full source list */
+        <div className="self-start border border-base-300 rounded-lg p-3 flex flex-col">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-semibold text-base-content/50 uppercase tracking-wide">
+              {sources.length} {sources.length === 1 ? "Source" : "Sources"}
+            </span>
+            {selected && (
+              <button
+                type="button"
+                onClick={() => setCollapsed(true)}
+                title="Collapse list"
+                className="text-base-content/40 hover:text-base-content cursor-pointer"
+              >
+                <PanelLeftClose className="size-4" />
+              </button>
+            )}
           </div>
-        )}
-      </div>
+
+          {sourcesQ.isLoading ? (
+            <p className="text-xs text-base-content/40 px-2 py-1">Loading…</p>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {sources.map((s) => {
+                const isActive = !adding && s.name === selected;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => selectSource(s.name)}
+                    className={`px-3 py-1.5 rounded-md text-left transition-colors cursor-pointer ${
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "hover:bg-base-200 text-base-content"
+                    }`}
+                  >
+                    <span className="text-sm truncate block">
+                      {s.display_name || s.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={startAdd}
+            className="btn btn-primary btn-sm gap-1 w-full mt-3"
+          >
+            <Plus className="size-3.5" />
+            Add source
+          </button>
+        </div>
+      )}
 
       {/* Right: work area */}
       <div className="min-w-0">
@@ -91,26 +130,12 @@ export function SourcesPage() {
             }}
           />
         ) : selected ? (
-          <SourceWorkArea name={selected} />
+          <SourceWorkArea name={selected} onDeleted={() => setParams({})} />
         ) : (
           <div className="border border-dashed border-base-300 rounded-lg p-16 text-center text-sm text-base-content/40">
             Select a source to work on it, or add a new one.
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function SourceWorkArea({ name }: { name: string }) {
-  return (
-    <div>
-      <h1 className="text-lg font-semibold mb-1">{name}</h1>
-      <p className="text-sm text-base-content/60 mb-6">
-        Clean the raw data with transforms, then map it into evidence or loci.
-      </p>
-      <div className="border border-dashed border-base-300 rounded-lg p-12 text-center text-sm text-base-content/40">
-        Placeholder — raw grid → transforms → mappings go here.
       </div>
     </div>
   );

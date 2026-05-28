@@ -10,7 +10,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
-import { UploadCloud, Loader2, FileText, X, RefreshCw } from "lucide-react";
+import { Upload, ArrowRight, Loader2, FileText, X, RefreshCw } from "lucide-react";
 import { ingestSource } from "../data/pipeline/ingest";
 import { previewRaw, type RawPreview } from "../data/pipeline/load";
 import type { InsertSourceInput } from "../data/sourceOps";
@@ -209,49 +209,13 @@ export function AddSourcePanel({
       </p>
 
       {!hasInput ? (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          className={`rounded-lg border-2 border-dashed p-16 text-center transition-colors ${
-            dragging ? "border-primary bg-primary/5" : "border-base-300"
-          }`}
-        >
-          <UploadCloud className="size-10 mx-auto mb-3 text-base-content/30" />
-          <p className="font-medium mb-1">Drop a file to ingest</p>
-          <p className="text-sm text-base-content/50 mb-6">
-            CSV, TSV, or text — or{" "}
-            <button
-              type="button"
-              className="link link-primary"
-              onClick={() => fileRef.current?.click()}
-            >
-              browse
-            </button>
-          </p>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,.tsv,.txt,.parquet"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) pickFile(f);
-            }}
-          />
-          <div className="mx-auto max-w-xl flex items-center gap-2">
-            <div className="h-px flex-1 bg-base-300" />
-            <span className="text-xs text-base-content/40">or paste a URL</span>
-            <div className="h-px flex-1 bg-base-300" />
-          </div>
-          <div className="mx-auto max-w-xl flex items-center gap-2 mt-3">
+        <div className="w-full">
+          {/* Paste a URL (top row) */}
+          <div className="flex items-center gap-2 border-[1.5px] border-primary/30 rounded-t-lg px-3 py-2.5">
             <input
               type="text"
-              className="input input-bordered input-sm flex-1"
-              placeholder="https://docs.google.com/spreadsheets/d/… or a CSV/TSV/Parquet URL"
+              placeholder="Paste a Google Sheets or CSV/TSV/Parquet URL…"
+              className="flex-1 bg-transparent outline-none text-sm text-base-content placeholder:text-base-content/50"
               value={urlDraft}
               onChange={(e) => setUrlDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -260,12 +224,49 @@ export function AddSourcePanel({
             />
             <button
               type="button"
-              className="btn btn-primary btn-sm"
               onClick={() => pickUrl(urlDraft)}
               disabled={!urlDraft.trim()}
+              className="w-7 h-7 rounded-full bg-primary text-primary-content hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
             >
-              Go
+              <ArrowRight size={14} />
             </button>
+          </div>
+          {/* Drop / browse for a file (bottom row, connected) */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            onClick={() => fileRef.current?.click()}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-b-lg border-[1.5px] border-t-0 border-dotted transition-colors cursor-pointer ${
+              dragging
+                ? "border-primary bg-primary/10"
+                : "border-primary/30 bg-primary/5"
+            }`}
+          >
+            <div className="shrink-0 flex items-center justify-center w-8 h-8 rounded bg-primary/10">
+              <Upload size={14} className="text-primary" />
+            </div>
+            <div className="flex flex-col items-start">
+              <span className="text-sm font-medium text-base-content/70">
+                Drop or browse for a file
+              </span>
+              <span className="text-[11px] text-base-content/45">
+                CSV, TSV, or Parquet
+              </span>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,.tsv,.txt,.parquet"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) pickFile(f);
+              }}
+            />
           </div>
         </div>
       ) : (
