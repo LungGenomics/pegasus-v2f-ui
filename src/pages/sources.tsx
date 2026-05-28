@@ -39,13 +39,13 @@ export function SourcesPage() {
 
   return (
     <div
-      className={`grid gap-6 ${
+      className={`grid gap-6 h-[calc(100vh-6.25rem)] ${
         showStrip ? "grid-cols-[3rem_1fr]" : "grid-cols-[minmax(220px,340px)_1fr]"
       }`}
     >
       {showStrip ? (
         /* Collapsed strip */
-        <div className="self-start border border-base-300 rounded-lg p-1.5 flex flex-col items-center gap-1.5">
+        <div className="self-start max-h-full border border-base-300 rounded-lg p-1.5 flex flex-col items-center gap-1.5">
           <button
             type="button"
             onClick={() => setCollapsed(false)}
@@ -65,8 +65,8 @@ export function SourcesPage() {
         </div>
       ) : (
         /* Full source list */
-        <div className="self-start border border-base-300 rounded-lg p-3 flex flex-col">
-          <div className="flex items-center justify-between mb-3">
+        <div className="self-start max-h-full border border-base-300 rounded-lg p-3 flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between mb-3 shrink-0">
             <span className="text-xs font-semibold text-base-content/50 uppercase tracking-wide">
               {sources.length} {sources.length === 1 ? "Source" : "Sources"}
             </span>
@@ -82,35 +82,37 @@ export function SourcesPage() {
             )}
           </div>
 
-          {sourcesQ.isLoading ? (
-            <p className="text-xs text-base-content/40 px-2 py-1">Loading…</p>
-          ) : (
-            <div className="flex flex-col gap-0.5">
-              {sources.map((s) => {
-                const isActive = !adding && s.name === selected;
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => selectSource(s.name)}
-                    className={`px-3 py-1.5 rounded-md text-left transition-colors cursor-pointer ${
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "hover:bg-base-200 text-base-content"
-                    }`}
-                  >
-                    <span className="text-sm truncate block">
-                      {s.display_name || s.name}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <div className="flex-1 overflow-auto min-h-0">
+            {sourcesQ.isLoading ? (
+              <p className="text-xs text-base-content/40 px-2 py-1">Loading…</p>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {sources.map((s) => {
+                  const isActive = !adding && s.name === selected;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => selectSource(s.name)}
+                      className={`px-3 py-1.5 rounded-md text-left transition-colors cursor-pointer ${
+                        isActive
+                          ? "bg-primary/10 text-primary"
+                          : "hover:bg-base-200 text-base-content"
+                      }`}
+                    >
+                      <span className="text-sm truncate block">
+                        {s.display_name || s.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={startAdd}
-            className="btn btn-primary btn-sm gap-1 w-full mt-3"
+            className="btn btn-primary btn-sm gap-1 w-full mt-3 shrink-0"
           >
             <Plus className="size-3.5" />
             Add source
@@ -119,7 +121,7 @@ export function SourcesPage() {
       )}
 
       {/* Right: work area */}
-      <div className="min-w-0">
+      <div className="min-w-0 h-full overflow-auto">
         {adding ? (
           <AddSourcePanel
             onCancel={() => setAdding(false)}

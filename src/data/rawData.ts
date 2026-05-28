@@ -5,6 +5,9 @@
 
 import { getDataSource, tableExists } from "./select";
 import { rawTableName } from "./sourceOps";
+import { compileTransformPipeline } from "./transform/compile";
+import { listSourceTransforms } from "./sourceTransformOps";
+import type { TransformConfigEntry } from "../api/types";
 
 function ident(name: string): string {
   return `"${String(name).replace(/"/g, '""')}"`;
@@ -137,6 +140,79 @@ export async function getRawPage(
   });
   const rows = await ds.query<Record<string, unknown>>({
     sql: `SELECT * FROM ${tbl} ${whereClause} ${order} LIMIT ${limit} OFFSET ${offset}`,
+  });
+  return { rows, total: Number(n ?? 0) };
+}
+
+// --- Transformed view ---
+// Apply the source's transform pipeline (config.source_transforms, compiled to
+// SQL via transform/compile.ts) on top of main.raw_<id>. The result has a
+// different schema from raw (rename/select/explode can add/drop/rename cols).
+
+async function buildTransformedPipeline(sourceId: string): Promise<string> {
+  const transforms = await listSourceTransforms(sourceId);
+  const baseRaw = `SELECT * FROM main.${ident(rawTableName(sourceId))}`;
+  // ConfigSourceTransform stores {seq, type, params}; the compiler expects
+  // params spread at the top level (TransformConfigEntry.{type, ...params}).
+  const entries: TransformConfigEntry[] = transforms.map((t) => ({
+    type: t.type,
+    ...(t.params as Record<string, unknown>),
+  }));
+  return compileTransformPipeline(entries, baseRaw, { sourceIsSql: true });
+}
+
+/** Columns of the transformed view (via DuckDB `DESCRIBE`). Robust to empty
+ *  results — works even if the pipeline yields zero rows. */
+export async function getTransformedSchema(
+  sourceId: string,
+): Promise<string[]> {
+  const ds = getDataSource();
+  const pipeline = await buildTransformedPipeline(sourceId);
+  const desc = await ds.query<{ column_name: string }>({
+    sql: `DESCRIBE ${pipeline}`,
+  });
+  return desc.map((r) => r.column_name);
+}
+
+/** A page of the transformed view — same WHERE/ORDER/LIMIT semantics as
+ *  getRawPage, applied over the compiled transform pipeline. */
+export async function getTransformedPage(
+  sourceId: string,
+  req: RawPageRequest,
+): Promise<RawPage> {
+  const ds = getDataSource();
+  const pipeline = await buildTransformedPipeline(sourceId);
+
+  const clauses: string[] = [];
+  for (const f of req.filters ?? []) {
+    if (f.contains.trim() === "") continue;
+    clauses.push(
+      `CAST(${ident(f.column)} AS VARCHAR) ILIKE ${strLit(`%${f.contains}%`)}`,
+    );
+  }
+  if (
+    req.search &&
+    req.search.query.trim() !== "" &&
+    req.search.columns.length > 0
+  ) {
+    const q = req.search.query.trim();
+    const inner = req.search.columns
+      .map((c) => `CAST(${ident(c)} AS VARCHAR) ILIKE ${strLit(`%${q}%`)}`)
+      .join(" OR ");
+    clauses.push(`(${inner})`);
+  }
+  const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+  const order = req.orderBy
+    ? `ORDER BY ${ident(req.orderBy)} ${req.dir === "desc" ? "DESC" : "ASC"}`
+    : "";
+  const limit = Math.max(1, Math.min(req.limit, 1000));
+  const offset = Math.max(0, req.offset);
+
+  const [{ n } = { n: 0 }] = await ds.query<{ n: number }>({
+    sql: `SELECT COUNT(*) AS n FROM (${pipeline}) ${whereClause}`,
+  });
+  const rows = await ds.query<Record<string, unknown>>({
+    sql: `SELECT * FROM (${pipeline}) ${whereClause} ${order} LIMIT ${limit} OFFSET ${offset}`,
   });
   return { rows, total: Number(n ?? 0) };
 }
