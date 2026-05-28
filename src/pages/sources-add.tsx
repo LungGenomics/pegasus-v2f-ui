@@ -14,6 +14,7 @@ import { Upload, ArrowRight, Loader2, FileText, X, RefreshCw } from "lucide-reac
 import { ingestSource } from "../data/pipeline/ingest";
 import { previewRaw, type RawPreview } from "../data/pipeline/load";
 import type { InsertSourceInput } from "../data/sourceOps";
+import { useSyncSession } from "../hooks/useSyncSession";
 
 const NAME_RE = /^[a-z0-9_]+$/;
 
@@ -73,6 +74,8 @@ export function AddSourcePanel({
   onCancel: () => void;
   onDone: (sourceName: string) => void;
 }) {
+  const session = useSyncSession();
+  const actor = session?.login ?? null;
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("");
   const [urlDraft, setUrlDraft] = useState("");
@@ -192,7 +195,7 @@ export function AddSourcePanel({
         input.url = url.trim();
         if (sourceType === "googlesheets" && sheet) input.sheet = sheet;
       }
-      const res = await ingestSource(input, file ?? undefined);
+      const res = await ingestSource(input, file ?? undefined, actor);
       onDone(res.source.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

@@ -45,6 +45,8 @@ const STATEMENTS: string[] = [
      ot_therapeutic_areas  JSON,
      last_enriched_at      TIMESTAMP,
      row_version           INTEGER NOT NULL DEFAULT 1,
+     created_by            VARCHAR,
+     last_edited_by        VARCHAR,
      created_at            TIMESTAMP NOT NULL DEFAULT now(),
      updated_at            TIMESTAMP NOT NULL DEFAULT now()
    )`,
@@ -57,17 +59,19 @@ const STATEMENTS: string[] = [
 
   // -- sources ---------------------------------------------------------
   `CREATE TABLE IF NOT EXISTS config.sources (
-     id            UUID PRIMARY KEY DEFAULT uuid(),
-     name          VARCHAR NOT NULL UNIQUE,
-     display_name  VARCHAR,
-     description   VARCHAR,
-     source_type   VARCHAR NOT NULL,
-     url           VARCHAR,
-     sheet         VARCHAR,
-     skip_rows     INTEGER DEFAULT 0,
-     row_version   INTEGER NOT NULL DEFAULT 1,
-     created_at    TIMESTAMP NOT NULL DEFAULT now(),
-     updated_at    TIMESTAMP NOT NULL DEFAULT now()
+     id              UUID PRIMARY KEY DEFAULT uuid(),
+     name            VARCHAR NOT NULL UNIQUE,
+     display_name    VARCHAR,
+     description     VARCHAR,
+     source_type     VARCHAR NOT NULL,
+     url             VARCHAR,
+     sheet           VARCHAR,
+     skip_rows       INTEGER DEFAULT 0,
+     row_version     INTEGER NOT NULL DEFAULT 1,
+     created_by      VARCHAR,
+     last_edited_by  VARCHAR,
+     created_at      TIMESTAMP NOT NULL DEFAULT now(),
+     updated_at      TIMESTAMP NOT NULL DEFAULT now()
    )`,
 
   `CREATE INDEX IF NOT EXISTS idx_sources_name
@@ -138,6 +142,8 @@ const STATEMENTS: string[] = [
      window_kb           INTEGER,
      merge_distance_kb   INTEGER,
      row_version         INTEGER NOT NULL DEFAULT 1,
+     created_by          VARCHAR,
+     last_edited_by      VARCHAR,
      created_at          TIMESTAMP NOT NULL DEFAULT now(),
      updated_at          TIMESTAMP NOT NULL DEFAULT now()
    )`,

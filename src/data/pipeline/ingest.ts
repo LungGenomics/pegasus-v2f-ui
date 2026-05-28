@@ -10,8 +10,14 @@
 // immediately (model D1); publishing to the shared R2 copy is a later,
 // explicit step.
 
-import { insertSource, getSourceById } from "../sourceOps";
-import type { InsertSourceInput } from "../sourceOps";
+import {
+  insertSource,
+  getSource,
+  getSourceById,
+  updateSource,
+  bumpSourceAudit,
+} from "../sourceOps";
+import type { InsertSourceInput, UpdateSourcePatch } from "../sourceOps";
 import { loadRawSource, ingestRawFile } from "./load";
 import { getDataSource } from "../select";
 import type { ConfigSource } from "../../api/types";
@@ -33,6 +39,7 @@ export interface IngestResult {
 export async function ingestSource(
   input: InsertSourceInput,
   file?: File,
+  actor: string | null = null,
 ): Promise<IngestResult> {
   const usesFile = !!file;
   if (!usesFile && !input.url) {
@@ -41,7 +48,7 @@ export async function ingestSource(
     );
   }
 
-  const id = await insertSource(input);
+  const id = await insertSource(input, actor);
   const source = await getSourceById(id);
   if (!source) {
     throw new Error("Source row vanished immediately after insert.");
@@ -59,6 +66,56 @@ export async function ingestSource(
     sql: "UPDATE config.sources SET raw_version = raw_version + 1 WHERE id = ?",
     params: [id],
   });
+
+  return { source, rawTable: result.raw_table, rows: result.rows };
+}
+
+/**
+ * Re-ingest an existing source's raw table — used when its upstream changed
+ * or its ingest settings (url / sheet / skip_rows) were wrong. Applies any
+ * metadata patch first (so the re-fetch uses the new settings), then
+ * rebuilds main.raw_<id> (CREATE OR REPLACE wipes the old contents).
+ *
+ * @param name   existing source name
+ * @param patch  optional url/sheet/skip_rows edits to apply before fetching
+ * @param file   required for file-backed sources (no URL to re-fetch);
+ *   for URL/sheet sources, omit it and the loader re-fetches.
+ */
+export async function reingestSource(
+  name: string,
+  patch: Pick<UpdateSourcePatch, "url" | "sheet" | "skip_rows">,
+  file?: File,
+  actor: string | null = null,
+): Promise<IngestResult> {
+  // Apply ingest-setting edits first (also bumps the source's audit).
+  if (Object.keys(patch).length > 0) {
+    await updateSource(name, patch, actor);
+  }
+
+  const source = await getSource(name);
+  if (!source) {
+    throw new Error(`Source '${name}' not found`);
+  }
+  if (!file && !source.url) {
+    throw new Error(
+      "Re-ingest needs an uploaded file (file source) or a URL to fetch from.",
+    );
+  }
+
+  const result = file
+    ? await ingestRawFile(source, file)
+    : await loadRawSource(source);
+
+  // Same raw_version bump as ingestSource — the raw table changed.
+  await getDataSource().exec({
+    sql: "UPDATE config.sources SET raw_version = raw_version + 1 WHERE id = ?",
+    params: [source.id],
+  });
+  // updateSource above bumped audit when a patch was given; for a no-patch
+  // re-fetch (URL source, same settings) still record who re-ingested.
+  if (Object.keys(patch).length === 0) {
+    await bumpSourceAudit(source.id, actor);
+  }
 
   return { source, rawTable: result.raw_table, rows: result.rows };
 }

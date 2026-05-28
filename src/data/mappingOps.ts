@@ -5,6 +5,7 @@
 // Transforms are NOT here — they're source-level (sourceTransformOps.ts).
 
 import { getDataSource } from "./select";
+import { bumpSourceAudit } from "./sourceOps";
 import type {
   ConfigMapping,
   MappingCentric,
@@ -28,6 +29,8 @@ type MappingRow = {
   window_kb: number | null;
   merge_distance_kb: number | null;
   row_version: number;
+  created_by: string | null;
+  last_edited_by: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -64,6 +67,8 @@ function rowToMapping(
   if (row.window_kb != null) out.window_kb = Number(row.window_kb);
   if (row.merge_distance_kb != null)
     out.merge_distance_kb = Number(row.merge_distance_kb);
+  if (row.created_by != null) out.created_by = row.created_by;
+  if (row.last_edited_by != null) out.last_edited_by = row.last_edited_by;
   if (row.created_at != null) out.created_at = row.created_at;
   if (row.updated_at != null) out.updated_at = row.updated_at;
   if (fields.length > 0) {
@@ -117,7 +122,7 @@ async function fetchMappingChildren(mappingId: string): Promise<{
 const SELECT_COLS =
   "id, source_id, source_tag, display_name, target, evidence_category, " +
   "centric, trait_scope, window_kb, merge_distance_kb, row_version, " +
-  "created_at, updated_at";
+  "created_by, last_edited_by, created_at, updated_at";
 
 // --- READS ---
 
@@ -189,14 +194,16 @@ export interface InsertMappingInput {
 
 export async function insertMapping(
   input: InsertMappingInput,
+  actor: string | null = null,
 ): Promise<string> {
   const ds = getDataSource();
   const [row] = await ds.query<{ id: string }>({
     sql:
       "INSERT INTO config.mappings " +
       "  (source_id, source_tag, display_name, target, evidence_category, " +
-      "   centric, trait_scope, window_kb, merge_distance_kb) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+      "   centric, trait_scope, window_kb, merge_distance_kb, " +
+      "   created_by, last_edited_by) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     params: [
       input.source_id,
       input.source_tag,
@@ -207,6 +214,8 @@ export async function insertMapping(
       input.trait_scope ?? null,
       input.window_kb ?? null,
       input.merge_distance_kb ?? null,
+      actor,
+      actor,
     ],
   });
   if (!row) throw new Error("INSERT config.mappings returned no rows");
@@ -217,6 +226,9 @@ export async function insertMapping(
     trait_ids: input.trait_ids ?? [],
     trait_column: input.trait_column ?? null,
   });
+  // Reflect the change on the parent source's audit so the source's
+  // last_edited reflects the mapping change too.
+  await bumpSourceAudit(input.source_id, actor);
   return mappingId;
 }
 
@@ -241,6 +253,7 @@ export type UpdateMappingPatch = Partial<
 export async function updateMapping(
   id: string,
   patch: UpdateMappingPatch,
+  actor: string | null = null,
 ): Promise<void> {
   const ds = getDataSource();
   // Load the full current mapping so we can rewrite the complete child set.
@@ -281,19 +294,22 @@ export async function updateMapping(
   // 1. Clear every child so the parent UPDATE's FK check passes.
   await deleteAllMappingChildren(id);
 
-  // 2. Update the parent row.
-  if (sets.length > 0) {
-    sets.push("row_version = row_version + 1");
-    sets.push("updated_at = now()");
-    params.push(id);
-    await ds.exec({
-      sql: `UPDATE config.mappings SET ${sets.join(", ")} WHERE id = ?`,
-      params,
-    });
-  }
+  // 2. Update the parent row. Always bump last_edited_by so an update that
+  //    only changes children (e.g. fields) still records the actor.
+  sets.push("last_edited_by = ?");
+  params.push(actor);
+  sets.push("row_version = row_version + 1");
+  sets.push("updated_at = now()");
+  params.push(id);
+  await ds.exec({
+    sql: `UPDATE config.mappings SET ${sets.join(", ")} WHERE id = ?`,
+    params,
+  });
 
   // 3. Reinsert the full merged child set.
   await insertMappingChildren(id, effective);
+
+  await bumpSourceAudit(current.source_id, actor);
 }
 
 async function deleteAllMappingChildren(id: string): Promise<void> {
@@ -351,11 +367,18 @@ async function insertMappingChildren(
   }
 }
 
-export async function removeMapping(id: string): Promise<void> {
+export async function removeMapping(
+  id: string,
+  actor: string | null = null,
+): Promise<void> {
   const ds = getDataSource();
+  // Capture source_id before the row goes away so we can bump the parent's
+  // audit after deletion.
+  const current = await getMapping(id);
   await deleteAllMappingChildren(id);
   await ds.exec({
     sql: "DELETE FROM config.mappings WHERE id = ?",
     params: [id],
   });
+  if (current) await bumpSourceAudit(current.source_id, actor);
 }

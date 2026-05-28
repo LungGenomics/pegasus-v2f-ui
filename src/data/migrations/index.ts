@@ -2,8 +2,9 @@ import type { DataSource } from "../types";
 import type { Migration } from "./types";
 import { migration as m001 } from "./001-redesigned-schema";
 import { migration as m002 } from "./002-publish-tracker";
+import { migration as m003 } from "./003-audit-columns";
 
-const ALL_MIGRATIONS: Migration[] = [m001, m002].sort(
+const ALL_MIGRATIONS: Migration[] = [m001, m002, m003].sort(
   (a, b) => a.version - b.version,
 );
 

@@ -204,10 +204,12 @@ function compileMapGeneId(t: TransformConfigEntry, input: string): string {
   if (!col || from !== "ensembl" || to !== "hgnc") return input;
   // Strip Ensembl version suffix (ENSG00000227232.5 → ENSG00000227232) before
   // joining. gene_mapping is loaded by createGeneMappingTable() in the
-  // adapter — see Phase 1c gene-mapping loader.
+  // adapter — see Phase 1c gene-mapping loader. `_in.* REPLACE` keeps the
+  // mapped column in its original position so the table view doesn't shuffle
+  // it to the end.
   const stripVersion = `REGEXP_REPLACE(_in.${ident(col)}, '\\.\\d+$', '')`;
   const joined =
-    `SELECT _in.* EXCLUDE (${ident(col)}), gm.symbol AS ${ident(col)} ` +
+    `SELECT _in.* REPLACE (gm.symbol AS ${ident(col)}) ` +
     `FROM ${sub(input)} _in ` +
     `LEFT JOIN main.gene_mapping gm ON gm.ensembl_gene_id = ${stripVersion}`;
   return dropUnmapped
@@ -272,10 +274,13 @@ function compileExplodeColumn(t: TransformConfigEntry, input: string): string {
     : `UNNEST(string_split(CAST(${ident(col)} AS VARCHAR), ${strLit(delim)}))`;
   // Two-stage: UNNEST in an inner SELECT (filtering NULL originals
   // pre-explode), then strip empty results in an outer SELECT so
-  // trailing delimiters don't yield blank rows.
+  // trailing delimiters don't yield blank rows. `* REPLACE` (vs the
+  // older `* EXCLUDE … , … AS col`) keeps the exploded column in its
+  // original position so the table view doesn't visually shuffle the
+  // column to the end.
   return (
     `SELECT * FROM (` +
-    `SELECT * EXCLUDE (${ident(col)}), ${valueExpr} AS ${ident(col)} ` +
+    `SELECT * REPLACE (${valueExpr} AS ${ident(col)}) ` +
     `FROM ${sub(input)} ` +
     `WHERE ${ident(col)} IS NOT NULL` +
     `) ` +

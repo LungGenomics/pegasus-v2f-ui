@@ -31,6 +31,10 @@ type TraitRow = {
   ot_therapeutic_areas: string | string[] | null;
   last_enriched_at: string | null;
   row_version: number;
+  created_by: string | null;
+  last_edited_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 function parseArray<T>(v: string | T[] | null | undefined): T[] | undefined {
@@ -75,6 +79,10 @@ function rowToTrait(row: TraitRow): ConfigTrait {
   const tas = parseArray<string>(row.ot_therapeutic_areas);
   if (tas) out.ot_therapeutic_areas = tas;
   if (row.last_enriched_at != null) out.last_enriched_at = row.last_enriched_at;
+  if (row.created_by != null) out.created_by = row.created_by;
+  if (row.last_edited_by != null) out.last_edited_by = row.last_edited_by;
+  if (row.created_at != null) out.created_at = row.created_at;
+  if (row.updated_at != null) out.updated_at = row.updated_at;
   return out;
 }
 
@@ -82,7 +90,8 @@ const TRAIT_COLS =
   "id, label, description, primary_ontology, primary_ontology_id, " +
   "ontology_label, xrefs, ontology_version, parent_trait_id, " +
   "trait_kind, synonyms, hierarchy_path, ot_phenotypes, ot_drugs, " +
-  "ot_therapeutic_areas, last_enriched_at, row_version";
+  "ot_therapeutic_areas, last_enriched_at, row_version, " +
+  "created_by, last_edited_by, created_at, updated_at";
 
 // --- READS ---
 
@@ -137,13 +146,18 @@ export interface UpsertTraitInput {
 /** Find a trait by label, or create a bare one with just the label.
  *  Used by the per-row trait-column derivation pipeline when it
  *  encounters a label it hasn't seen before. Returns the trait_id. */
-export async function findOrCreateByLabel(label: string): Promise<string> {
+export async function findOrCreateByLabel(
+  label: string,
+  actor: string | null = null,
+): Promise<string> {
   const existing = await getTraitByLabel(label);
   if (existing) return existing.id;
   const ds = getDataSource();
   const [row] = await ds.query<{ id: string }>({
-    sql: "INSERT INTO config.traits (label) VALUES (?) RETURNING id",
-    params: [label],
+    sql:
+      "INSERT INTO config.traits (label, created_by, last_edited_by) " +
+      "VALUES (?, ?, ?) RETURNING id",
+    params: [label, actor, actor],
   });
   if (!row) throw new Error("INSERT config.traits returned no rows");
   return row.id;
@@ -154,6 +168,7 @@ export async function findOrCreateByLabel(label: string): Promise<string> {
  *  a column update. */
 export async function upsertTrait(
   input: UpsertTraitInput,
+  actor: string | null = null,
 ): Promise<string> {
   const ds = getDataSource();
   const existing = await getTraitByLabel(input.label);
@@ -166,6 +181,7 @@ export async function upsertTrait(
         "  parent_trait_id = ?, trait_kind = ?, synonyms = ?, " +
         "  hierarchy_path = ?, ot_phenotypes = ?, ot_drugs = ?, " +
         "  ot_therapeutic_areas = ?, last_enriched_at = ?, " +
+        "  last_edited_by = ?, " +
         "  row_version = row_version + 1, updated_at = now() " +
         "WHERE id = ?",
       params: [
@@ -185,6 +201,7 @@ export async function upsertTrait(
           ? JSON.stringify(input.ot_therapeutic_areas)
           : null,
         input.last_enriched_at ?? existing.last_enriched_at ?? null,
+        actor,
         existing.id,
       ],
     });
@@ -197,8 +214,8 @@ export async function upsertTrait(
       "  (label, description, primary_ontology, primary_ontology_id, " +
       "   ontology_label, xrefs, ontology_version, parent_trait_id, " +
       "   trait_kind, synonyms, hierarchy_path, ot_phenotypes, ot_drugs, " +
-      "   ot_therapeutic_areas, last_enriched_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+      "   ot_therapeutic_areas, last_enriched_at, created_by, last_edited_by) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     params: [
       input.label,
       input.description ?? null,
@@ -217,6 +234,8 @@ export async function upsertTrait(
         ? JSON.stringify(input.ot_therapeutic_areas)
         : null,
       input.last_enriched_at ?? null,
+      actor,
+      actor,
     ],
   });
   if (!row) throw new Error("INSERT config.traits returned no rows");

@@ -3,6 +3,7 @@
 // as before, compiled to SQL by transform/compile.ts.
 
 import { getDataSource } from "./select";
+import { bumpSourceAudit } from "./sourceOps";
 import type { ConfigSourceTransform } from "../api/types";
 
 type TransformRow = {
@@ -43,10 +44,14 @@ export async function listSourceTransforms(
 }
 
 /** Replace a source's entire transform pipeline. Re-sequences from 0 in the
- *  given order so callers don't have to manage `seq`. */
+ *  given order so callers don't have to manage `seq`. Bumps the parent
+ *  source's `last_edited_by` + `updated_at` so the source audit reflects
+ *  the pipeline change (no per-step audit — transforms are replaced as a
+ *  unit, the actor lives on the source row). */
 export async function replaceSourceTransforms(
   sourceId: string,
   transforms: Array<Pick<ConfigSourceTransform, "type" | "params">>,
+  actor: string | null = null,
 ): Promise<void> {
   const ds = getDataSource();
   await ds.exec({
@@ -63,4 +68,5 @@ export async function replaceSourceTransforms(
     });
     seq += 1;
   }
+  await bumpSourceAudit(sourceId, actor);
 }

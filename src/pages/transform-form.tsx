@@ -2,17 +2,19 @@
 // an "Advanced" escape hatch on each step (in source-workarea); this module
 // is the default, friendlier view.
 //
-// Column inputs use <datalist> for autocomplete *plus* free typing — necessary
-// because columns produced by earlier transforms (e.g. parse_variant_id makes
-// `chromosome` + `position`) don't appear in the raw schema we get passed.
+// Column inputs use the custom ColumnCombobox (input + capped popup) plus
+// free typing — necessary because columns produced by earlier transforms
+// (e.g. parse_variant_id makes `chromosome` + `position`) don't appear in
+// the raw schema we get passed.
 //
 // The form components are intentionally controlled+derived: each render
 // reads `params` directly and emits the full next params on every change.
 // rename / aggregate use a small local entries array to keep row identity
 // stable across keystrokes while still emitting the canonical Record shape.
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { ColumnCombobox } from "./column-combobox";
 
 type Params = Record<string, unknown>;
 
@@ -38,49 +40,27 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ColumnInput({
-  value,
-  onChange,
-  listId,
-  placeholder = "column",
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  listId: string;
-  placeholder?: string;
-}) {
-  return (
-    <input
-      list={listId}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="input input-bordered input-sm w-full font-mono"
-    />
-  );
-}
-
 function ColumnListInput({
   value,
   onChange,
-  listId,
+  columns,
   itemLabel = "column",
 }: {
   value: string[];
   onChange: (v: string[]) => void;
-  listId: string;
+  columns: string[];
   itemLabel?: string;
 }) {
   return (
     <div className="space-y-1.5">
       {value.map((v, i) => (
         <div key={i} className="flex items-center gap-1">
-          <ColumnInput
+          <ColumnCombobox
             value={v}
             onChange={(nv) =>
               onChange(value.map((x, idx) => (idx === i ? nv : x)))
             }
-            listId={listId}
+            columns={columns}
             placeholder={itemLabel}
           />
           <button
@@ -170,6 +150,69 @@ function asRecord(v: unknown): Record<string, string> {
   return {};
 }
 
+// --- "Incomplete?" check ---------------------------------------------------
+// Mirrors the per-type guards in src/data/transform/compile.ts: a step is
+// "incomplete" when compile.ts would short-circuit it (returning the
+// upstream input unchanged) — useful so the UI can show those steps as
+// no-ops without actually breaking the pipeline. Used by the step card to
+// dim the body + render an `incomplete` badge.
+
+function trimStr(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+function nonBlankArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => String(x ?? "").trim()).filter((s) => s !== "");
+}
+
+export function isTransformIncomplete(
+  type: string,
+  params: Record<string, unknown>,
+): boolean {
+  const p = params ?? {};
+  switch (type) {
+    case "rename": {
+      const cols = (p.columns ?? {}) as Record<string, unknown>;
+      if (!cols || typeof cols !== "object" || Array.isArray(cols)) return true;
+      // At least one pair with both old + new non-blank.
+      return !Object.entries(cols).some(
+        ([from, to]) => from.trim() !== "" && String(to ?? "").trim() !== "",
+      );
+    }
+    case "deduplicate":
+      // Empty columns is valid — compiles to DISTINCT *.
+      return false;
+    case "select":
+    case "drop_nulls":
+    case "coerce_numeric":
+      return nonBlankArray(p.columns).length === 0;
+    case "strip_prefix":
+      return !trimStr(p.column) || !trimStr(p.prefix);
+    case "uppercase":
+    case "parse_variant_id":
+    case "explode_column":
+    case "map_gene_id":
+      return !trimStr(p.column);
+    case "filter_values":
+      return !trimStr(p.column) || nonBlankArray(p.values).length === 0;
+    case "split_column":
+      return !trimStr(p.column) || nonBlankArray(p.columns).length === 0;
+    case "aggregate": {
+      if (nonBlankArray(p.group_by).length === 0) return true;
+      const agg = (p.agg ?? {}) as Record<string, unknown>;
+      if (!agg || typeof agg !== "object" || Array.isArray(agg)) return true;
+      return !Object.entries(agg).some(
+        ([col, fn]) => col.trim() !== "" && String(fn ?? "").trim() !== "",
+      );
+    }
+    case "compute":
+      return !trimStr(p.output) || !trimStr(p.expression);
+    default:
+      // Unknown / custom — don't assume; let it through.
+      return false;
+  }
+}
+
 // --- Pair editor (rename, aggregate) --------------------------------------
 // Stores entries as an array internally so row identity is stable across
 // keystrokes (Object.entries order is unstable when a key flips to "").
@@ -178,7 +221,7 @@ function asRecord(v: unknown): Record<string, string> {
 function PairsEditor({
   value,
   onChange,
-  listId,
+  columns,
   rightKind,
   leftPlaceholder,
   rightPlaceholder,
@@ -186,7 +229,7 @@ function PairsEditor({
 }: {
   value: Record<string, string>;
   onChange: (v: Record<string, string>) => void;
-  listId: string;
+  columns: string[];
   rightKind: "text" | "select";
   leftPlaceholder?: string;
   rightPlaceholder?: string;
@@ -222,10 +265,10 @@ function PairsEditor({
     <div className="space-y-1.5">
       {entries.map((e, i) => (
         <div key={i} className="flex items-center gap-1">
-          <ColumnInput
+          <ColumnCombobox
             value={e.from}
             onChange={(v) => setFrom(i, v)}
-            listId={listId}
+            columns={columns}
             placeholder={leftPlaceholder ?? "column"}
           />
           <span className="text-base-content/40 text-xs shrink-0">→</span>
@@ -276,11 +319,11 @@ function PairsEditor({
 function RenameForm({
   params,
   onChange,
-  listId,
+  columns,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
 }) {
   return (
     <div>
@@ -288,7 +331,7 @@ function RenameForm({
       <PairsEditor
         value={asRecord(params.columns)}
         onChange={(map) => onChange({ ...params, columns: map })}
-        listId={listId}
+        columns={columns}
         rightKind="text"
         leftPlaceholder="old name"
         rightPlaceholder="new name"
@@ -300,13 +343,13 @@ function RenameForm({
 function ColumnListForm({
   params,
   onChange,
-  listId,
+  columns,
   label,
   itemLabel,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
   label: string;
   itemLabel?: string;
 }) {
@@ -316,7 +359,7 @@ function ColumnListForm({
       <ColumnListInput
         value={asStringArray(params.columns)}
         onChange={(v) => onChange({ ...params, columns: v })}
-        listId={listId}
+        columns={columns}
         itemLabel={itemLabel ?? "column"}
       />
     </div>
@@ -326,21 +369,21 @@ function ColumnListForm({
 function SingleColumnForm({
   params,
   onChange,
-  listId,
+  columns,
   label,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
   label: string;
 }) {
   return (
     <div>
       <FieldLabel>{label}</FieldLabel>
-      <ColumnInput
+      <ColumnCombobox
         value={asString(params.column)}
         onChange={(v) => onChange({ ...params, column: v })}
-        listId={listId}
+        columns={columns}
       />
     </div>
   );
@@ -349,20 +392,20 @@ function SingleColumnForm({
 function StripPrefixForm({
   params,
   onChange,
-  listId,
+  columns,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
 }) {
   return (
     <div className="space-y-3">
       <div>
         <FieldLabel>Column</FieldLabel>
-        <ColumnInput
+        <ColumnCombobox
           value={asString(params.column)}
           onChange={(v) => onChange({ ...params, column: v })}
-          listId={listId}
+          columns={columns}
         />
       </div>
       <div>
@@ -381,20 +424,20 @@ function StripPrefixForm({
 function FilterValuesForm({
   params,
   onChange,
-  listId,
+  columns,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
 }) {
   return (
     <div className="space-y-3">
       <div>
         <FieldLabel>Column</FieldLabel>
-        <ColumnInput
+        <ColumnCombobox
           value={asString(params.column)}
           onChange={(v) => onChange({ ...params, column: v })}
-          listId={listId}
+          columns={columns}
         />
       </div>
       <div>
@@ -413,20 +456,20 @@ function FilterValuesForm({
 function SplitColumnForm({
   params,
   onChange,
-  listId,
+  columns,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
 }) {
   return (
     <div className="space-y-3">
       <div>
         <FieldLabel>Column to split</FieldLabel>
-        <ColumnInput
+        <ColumnCombobox
           value={asString(params.column)}
           onChange={(v) => onChange({ ...params, column: v })}
-          listId={listId}
+          columns={columns}
         />
       </div>
       <div>
@@ -454,20 +497,20 @@ function SplitColumnForm({
 function ExplodeColumnForm({
   params,
   onChange,
-  listId,
+  columns,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
 }) {
   return (
     <div className="space-y-3">
       <div>
         <FieldLabel>Column to explode</FieldLabel>
-        <ColumnInput
+        <ColumnCombobox
           value={asString(params.column)}
           onChange={(v) => onChange({ ...params, column: v })}
-          listId={listId}
+          columns={columns}
         />
       </div>
       <div>
@@ -494,11 +537,11 @@ function ExplodeColumnForm({
 function AggregateForm({
   params,
   onChange,
-  listId,
+  columns,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
 }) {
   return (
     <div className="space-y-3">
@@ -507,7 +550,7 @@ function AggregateForm({
         <ColumnListInput
           value={asStringArray(params.group_by)}
           onChange={(v) => onChange({ ...params, group_by: v })}
-          listId={listId}
+          columns={columns}
           itemLabel="column"
         />
       </div>
@@ -516,7 +559,7 @@ function AggregateForm({
         <PairsEditor
           value={asRecord(params.agg)}
           onChange={(m) => onChange({ ...params, agg: m })}
-          listId={listId}
+          columns={columns}
           rightKind="select"
           leftPlaceholder="column"
           rightPlaceholder="fn"
@@ -564,11 +607,11 @@ function ComputeForm({
 function MapGeneIdForm({
   params,
   onChange,
-  listId,
+  columns,
 }: {
   params: Params;
   onChange: (p: Params) => void;
-  listId: string;
+  columns: string[];
 }) {
   // Currently only ensembl → hgnc is wired; lock both ends.
   useEffect(() => {
@@ -590,10 +633,10 @@ function MapGeneIdForm({
     <div className="space-y-3">
       <div>
         <FieldLabel>Column (Ensembl IDs)</FieldLabel>
-        <ColumnInput
+        <ColumnCombobox
           value={asString(params.column)}
           onChange={(v) => onChange({ ...params, column: v })}
-          listId={listId}
+          columns={columns}
         />
       </div>
       <p className="text-xs text-base-content/40">
@@ -627,131 +670,102 @@ export function TransformParamsEditor({
   columns: string[];
   onChange: (p: Params) => void;
 }) {
-  // One <datalist> per editor instance, shared by every column input below.
-  const listId = useId();
-
-  let body: React.ReactNode;
   switch (type) {
     case "rename":
-      body = <RenameForm params={params} onChange={onChange} listId={listId} />;
-      break;
+      return <RenameForm params={params} onChange={onChange} columns={columns} />;
     case "select":
-      body = (
+      return (
         <ColumnListForm
           params={params}
           onChange={onChange}
-          listId={listId}
+          columns={columns}
           label="Keep these columns (in order)"
         />
       );
-      break;
     case "deduplicate":
-      body = (
+      return (
         <ColumnListForm
           params={params}
           onChange={onChange}
-          listId={listId}
+          columns={columns}
           label="Dedup by columns (empty = DISTINCT *)"
         />
       );
-      break;
     case "strip_prefix":
-      body = (
-        <StripPrefixForm params={params} onChange={onChange} listId={listId} />
+      return (
+        <StripPrefixForm params={params} onChange={onChange} columns={columns} />
       );
-      break;
     case "uppercase":
-      body = (
+      return (
         <SingleColumnForm
           params={params}
           onChange={onChange}
-          listId={listId}
+          columns={columns}
           label="Column to uppercase"
         />
       );
-      break;
     case "drop_nulls":
-      body = (
+      return (
         <ColumnListForm
           params={params}
           onChange={onChange}
-          listId={listId}
+          columns={columns}
           label="Drop rows where any of these are NULL"
         />
       );
-      break;
     case "coerce_numeric":
-      body = (
+      return (
         <ColumnListForm
           params={params}
           onChange={onChange}
-          listId={listId}
+          columns={columns}
           label="Coerce these columns to numeric (TRY_CAST → DOUBLE)"
         />
       );
-      break;
     case "filter_values":
-      body = (
+      return (
         <FilterValuesForm
           params={params}
           onChange={onChange}
-          listId={listId}
+          columns={columns}
         />
       );
-      break;
     case "parse_variant_id":
-      body = (
+      return (
         <SingleColumnForm
           params={params}
           onChange={onChange}
-          listId={listId}
+          columns={columns}
           label="Variant ID column (produces chromosome + position)"
         />
       );
-      break;
     case "split_column":
-      body = (
-        <SplitColumnForm params={params} onChange={onChange} listId={listId} />
+      return (
+        <SplitColumnForm params={params} onChange={onChange} columns={columns} />
       );
-      break;
     case "explode_column":
-      body = (
+      return (
         <ExplodeColumnForm
           params={params}
           onChange={onChange}
-          listId={listId}
+          columns={columns}
         />
       );
-      break;
     case "aggregate":
-      body = (
-        <AggregateForm params={params} onChange={onChange} listId={listId} />
+      return (
+        <AggregateForm params={params} onChange={onChange} columns={columns} />
       );
-      break;
     case "compute":
-      body = <ComputeForm params={params} onChange={onChange} />;
-      break;
+      return <ComputeForm params={params} onChange={onChange} />;
     case "map_gene_id":
-      body = (
-        <MapGeneIdForm params={params} onChange={onChange} listId={listId} />
+      return (
+        <MapGeneIdForm params={params} onChange={onChange} columns={columns} />
       );
-      break;
     default:
-      body = (
+      return (
         <p className="text-xs text-base-content/40">
           No form for "{type}" — switch to Advanced (JSON).
         </p>
       );
   }
-
-  return (
-    <>
-      <datalist id={listId}>
-        {columns.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
-      {body}
-    </>
-  );
 }

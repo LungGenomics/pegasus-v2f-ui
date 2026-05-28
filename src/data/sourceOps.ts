@@ -18,6 +18,8 @@ type SourceRow = {
   sheet: string | null;
   skip_rows: number | null;
   row_version: number;
+  created_by: string | null;
+  last_edited_by: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -53,6 +55,8 @@ function rowToSource(
   if (row.skip_rows != null && row.skip_rows !== 0) {
     out.skip_rows = Number(row.skip_rows);
   }
+  if (row.created_by != null) out.created_by = row.created_by;
+  if (row.last_edited_by != null) out.last_edited_by = row.last_edited_by;
   if (row.created_at != null) out.created_at = row.created_at;
   if (row.updated_at != null) out.updated_at = row.updated_at;
   if (citation) out.citation = rowToCitation(citation);
@@ -103,7 +107,8 @@ export async function listSources(): Promise<ConfigSource[]> {
   const rows = await ds.query<SourceRow>({
     sql:
       "SELECT id, name, display_name, description, source_type, url, sheet, " +
-      "       skip_rows, row_version, created_at, updated_at " +
+      "       skip_rows, row_version, created_by, last_edited_by, " +
+      "       created_at, updated_at " +
       "FROM config.sources ORDER BY name",
   });
   return Promise.all(
@@ -119,7 +124,8 @@ export async function getSource(name: string): Promise<ConfigSource | null> {
   const rows = await ds.query<SourceRow>({
     sql:
       "SELECT id, name, display_name, description, source_type, url, sheet, " +
-      "       skip_rows, row_version, created_at, updated_at " +
+      "       skip_rows, row_version, created_by, last_edited_by, " +
+      "       created_at, updated_at " +
       "FROM config.sources WHERE name = ? LIMIT 1",
     params: [name],
   });
@@ -136,7 +142,8 @@ export async function getSourceById(
   const rows = await ds.query<SourceRow>({
     sql:
       "SELECT id, name, display_name, description, source_type, url, sheet, " +
-      "       skip_rows, row_version, created_at, updated_at " +
+      "       skip_rows, row_version, created_by, last_edited_by, " +
+      "       created_at, updated_at " +
       "FROM config.sources WHERE id = ? LIMIT 1",
     params: [id],
   });
@@ -162,13 +169,15 @@ export interface InsertSourceInput {
 
 export async function insertSource(
   input: InsertSourceInput,
+  actor: string | null = null,
 ): Promise<string> {
   const ds = getDataSource();
   const [row] = await ds.query<{ id: string }>({
     sql:
       "INSERT INTO config.sources " +
-      "  (name, display_name, description, source_type, url, sheet, skip_rows) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+      "  (name, display_name, description, source_type, url, sheet, " +
+      "   skip_rows, created_by, last_edited_by) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     params: [
       input.name,
       input.display_name ?? null,
@@ -177,6 +186,8 @@ export async function insertSource(
       input.url ?? null,
       input.sheet ?? null,
       input.skip_rows ?? 0,
+      actor,
+      actor,
     ],
   });
   if (!row) throw new Error("INSERT config.sources returned no rows");
@@ -198,6 +209,25 @@ export async function insertSource(
   return sourceId;
 }
 
+/** Bump source.last_edited_by + updated_at without changing any other column.
+ *  Used by mapping/transform ops so a child-table edit shows up in the
+ *  parent source's audit. No-op if the source doesn't exist. */
+export async function bumpSourceAudit(
+  sourceId: string,
+  actor: string | null,
+): Promise<void> {
+  const ds = getDataSource();
+  await ds.exec({
+    sql:
+      "UPDATE config.sources " +
+      "SET last_edited_by = ?, " +
+      "    row_version = row_version + 1, " +
+      "    updated_at = now() " +
+      "WHERE id = ?",
+    params: [actor, sourceId],
+  });
+}
+
 export type UpdateSourcePatch = Partial<
   Pick<
     ConfigSource,
@@ -217,6 +247,7 @@ export type UpdateSourcePatch = Partial<
 export async function updateSource(
   name: string,
   patch: UpdateSourcePatch,
+  actor: string | null = null,
 ): Promise<void> {
   const ds = getDataSource();
   const existing = await ds.query<{ id: string }>({
@@ -246,6 +277,8 @@ export async function updateSource(
   if ("skip_rows" in patch) addSet("skip_rows", patch.skip_rows ?? 0);
 
   if (sets.length > 0) {
+    sets.push("last_edited_by = ?");
+    params.push(actor);
     sets.push("row_version = row_version + 1");
     sets.push("updated_at = now()");
     params.push(sourceId);
@@ -318,34 +351,33 @@ export async function removeSource(name: string): Promise<void> {
   const sourceId = existing[0]?.id;
   if (!sourceId) return;
 
-  // Manual cascade — DuckDB doesn't support ON DELETE CASCADE. Drop
-  // derivation children before derivations, then source-level children
-  // before the source row itself.
-  const derivationIds = await ds.query<{ id: string }>({
-    sql: "SELECT id FROM config.derivations WHERE source_id = ?",
+  // Manual cascade — DuckDB doesn't support ON DELETE CASCADE. Order:
+  // mapping children → mappings → source_transforms → source-level
+  // children (traits/citation/publish_state) → raw table → source row.
+  const mappingIds = await ds.query<{ id: string }>({
+    sql: "SELECT id FROM config.mappings WHERE source_id = ?",
     params: [sourceId],
   });
-  for (const { id } of derivationIds) {
+  for (const { id } of mappingIds) {
     await ds.exec({
-      sql: "DELETE FROM config.derivation_mappings WHERE derivation_id = ?",
+      sql: "DELETE FROM config.mapping_fields WHERE mapping_id = ?",
       params: [id],
     });
     await ds.exec({
-      sql: "DELETE FROM config.derivation_transforms WHERE derivation_id = ?",
+      sql: "DELETE FROM config.mapping_traits WHERE mapping_id = ?",
       params: [id],
     });
     await ds.exec({
-      sql: "DELETE FROM config.derivation_traits WHERE derivation_id = ?",
-      params: [id],
-    });
-    await ds.exec({
-      sql:
-        "DELETE FROM config.derivation_trait_column WHERE derivation_id = ?",
+      sql: "DELETE FROM config.mapping_trait_column WHERE mapping_id = ?",
       params: [id],
     });
   }
   await ds.exec({
-    sql: "DELETE FROM config.derivations WHERE source_id = ?",
+    sql: "DELETE FROM config.mappings WHERE source_id = ?",
+    params: [sourceId],
+  });
+  await ds.exec({
+    sql: "DELETE FROM config.source_transforms WHERE source_id = ?",
     params: [sourceId],
   });
   await ds.exec({
@@ -356,8 +388,13 @@ export async function removeSource(name: string): Promise<void> {
     sql: "DELETE FROM config.source_citation WHERE source_id = ?",
     params: [sourceId],
   });
+  // Publish-tracker row (added in migration 002); harmless when empty.
+  await ds.exec({
+    sql: "DELETE FROM config._publish_state WHERE source_id = ?",
+    params: [sourceId],
+  });
 
-  // Drop raw table if any build has already happened.
+  // Drop raw table if any ingest has already happened.
   await ds.exec({
     sql: `DROP TABLE IF EXISTS main."${rawTableName(sourceId)}"`,
   });

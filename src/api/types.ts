@@ -307,6 +307,10 @@ export interface ConfigSource {
   sheet?: string;
   skip_rows?: number;
   row_version?: number;
+  /** GitHub login of the user who created / last edited this source. NULL
+   *  when the write happened without a signed-in session. */
+  created_by?: string;
+  last_edited_by?: string;
   created_at?: string;
   updated_at?: string;
   /** Optional citation metadata (gwas_source, ancestry, etc.) when this
@@ -362,6 +366,8 @@ export interface ConfigMapping {
   window_kb?: number;
   merge_distance_kb?: number;
   row_version?: number;
+  created_by?: string;
+  last_edited_by?: string;
   created_at?: string;
   updated_at?: string;
   /** Loaded by getMapping / listMappingsForSource. */
@@ -400,6 +406,10 @@ export interface ConfigTrait {
   ot_therapeutic_areas?: string[];
   last_enriched_at?: string;
   row_version?: number;
+  created_by?: string;
+  last_edited_by?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface TraitXref {
