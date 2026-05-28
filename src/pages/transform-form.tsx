@@ -187,6 +187,7 @@ export function isTransformIncomplete(
     case "coerce_numeric":
       return nonBlankArray(p.columns).length === 0;
     case "strip_prefix":
+    case "add_prefix":
       return !trimStr(p.column) || !trimStr(p.prefix);
     case "uppercase":
     case "parse_variant_id":
@@ -410,6 +411,38 @@ function StripPrefixForm({
       </div>
       <div>
         <FieldLabel>Prefix to strip</FieldLabel>
+        <input
+          value={asString(params.prefix)}
+          onChange={(e) => onChange({ ...params, prefix: e.target.value })}
+          placeholder='e.g. "chr"'
+          className="input input-bordered input-sm w-full font-mono"
+        />
+      </div>
+    </div>
+  );
+}
+
+function AddPrefixForm({
+  params,
+  onChange,
+  columns,
+}: {
+  params: Params;
+  onChange: (p: Params) => void;
+  columns: string[];
+}) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <FieldLabel>Column</FieldLabel>
+        <ColumnCombobox
+          value={asString(params.column)}
+          onChange={(v) => onChange({ ...params, column: v })}
+          columns={columns}
+        />
+      </div>
+      <div>
+        <FieldLabel>Prefix to add</FieldLabel>
         <input
           value={asString(params.prefix)}
           onChange={(e) => onChange({ ...params, prefix: e.target.value })}
@@ -694,6 +727,10 @@ export function TransformParamsEditor({
     case "strip_prefix":
       return (
         <StripPrefixForm params={params} onChange={onChange} columns={columns} />
+      );
+    case "add_prefix":
+      return (
+        <AddPrefixForm params={params} onChange={onChange} columns={columns} />
       );
     case "uppercase":
       return (

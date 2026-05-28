@@ -149,7 +149,7 @@ export async function getRawPage(
 // SQL via transform/compile.ts) on top of main.raw_<id>. The result has a
 // different schema from raw (rename/select/explode can add/drop/rename cols).
 
-async function buildTransformedPipeline(sourceId: string): Promise<string> {
+export async function buildTransformedPipeline(sourceId: string): Promise<string> {
   const transforms = await listSourceTransforms(sourceId);
   const baseRaw = `SELECT * FROM main.${ident(rawTableName(sourceId))}`;
   // ConfigSourceTransform stores {seq, type, params}; the compiler expects

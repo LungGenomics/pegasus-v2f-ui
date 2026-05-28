@@ -100,6 +100,21 @@ function compileStripPrefix(t: TransformConfigEntry, input: string): string {
   );
 }
 
+function compileAddPrefix(t: TransformConfigEntry, input: string): string {
+  const col = String(t.column ?? "");
+  const prefix = String(t.prefix ?? "");
+  if (!col || !prefix) return input;
+  // Inverse of strip_prefix — prepend the literal prefix. Idempotency is the
+  // caller's concern (running it twice yields chrchr1); the typical use is
+  // aligning bare `1` → `chr1` to match the gene-reference chromosome format.
+  // CAST so a numeric chromosome column concatenates cleanly.
+  return (
+    `SELECT * REPLACE (` +
+    `${strLit(prefix)} || CAST(${ident(col)} AS VARCHAR) AS ${ident(col)}` +
+    `) FROM ${sub(input)}`
+  );
+}
+
 function compileUppercase(t: TransformConfigEntry, input: string): string {
   const col = String(t.column ?? "");
   if (!col) return input;
@@ -315,6 +330,8 @@ export function compileTransform(
       return compileDeduplicate(t, input);
     case "strip_prefix":
       return compileStripPrefix(t, input);
+    case "add_prefix":
+      return compileAddPrefix(t, input);
     case "uppercase":
       return compileUppercase(t, input);
     case "drop_nulls":

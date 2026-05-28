@@ -66,6 +66,20 @@ export const transformSchemas: Record<string, EntitySchema> = {
     },
   },
 
+  add_prefix: {
+    column: {
+      type: "column-ref",
+      label: "Column",
+      required: true,
+    },
+    prefix: {
+      type: "string",
+      label: "Prefix to add",
+      required: true,
+      placeholder: "e.g., chr",
+    },
+  },
+
   uppercase: {
     column: {
       type: "column-ref",
@@ -244,6 +258,7 @@ export const transformTypeMeta: Array<{
   { value: "select", label: "Select", description: "Keep specific columns" },
   { value: "deduplicate", label: "Deduplicate", description: "Drop duplicate rows" },
   { value: "strip_prefix", label: "Strip prefix", description: "Remove prefix from values" },
+  { value: "add_prefix", label: "Add prefix", description: "Prepend a prefix to values (e.g. chr)" },
   { value: "uppercase", label: "Uppercase", description: "Uppercase column values" },
   { value: "drop_nulls", label: "Drop nulls", description: "Drop rows with NULL in given columns" },
   { value: "coerce_numeric", label: "Coerce numeric", description: "String → number, NULL on bad" },

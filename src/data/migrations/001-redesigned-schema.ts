@@ -194,6 +194,8 @@ const STATEMENTS: string[] = [
      window_kb                INTEGER NOT NULL DEFAULT 500,
      merge_distance_kb        INTEGER NOT NULL DEFAULT 100,
      locus_definition_source  VARCHAR,
+     gene_reference_url       VARCHAR,
+     candidate_gene_biotypes  VARCHAR DEFAULT 'protein_coding,lncRNA',
      row_version              INTEGER NOT NULL DEFAULT 1,
      updated_at               TIMESTAMP NOT NULL DEFAULT now()
    )`,

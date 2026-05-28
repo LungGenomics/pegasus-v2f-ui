@@ -714,6 +714,7 @@ const TRANSFORM_TYPES = [
   "select",
   "deduplicate",
   "strip_prefix",
+  "add_prefix",
   "uppercase",
   "drop_nulls",
   "coerce_numeric",
