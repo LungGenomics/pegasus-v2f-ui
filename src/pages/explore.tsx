@@ -9,7 +9,6 @@ const ENTITIES = [
   { to: "/explore/loci", label: "Loci" },
   { to: "/explore/genes", label: "Genes" },
   { to: "/explore/traits", label: "Traits" },
-  { to: "/explore/studies", label: "Studies" },
 ];
 
 export function ExplorePage() {

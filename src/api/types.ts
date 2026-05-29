@@ -117,28 +117,28 @@ export interface Effector {
 
 // --- Locus evidence matrix ---
 
+// One evidence row for a (locus, gene) cell — real locus_evidence columns
+// (pass-through source values mapped to a PEGASUS category), NOT the dropped
+// integration scoring.
 export interface LocusGeneEvidence {
   evidence_category: string;
-  evidence_stream: string;
+  evidence_stream?: string;
   source_tag: string;
-  pvalue: number | string;
-  effect_size: number | string;
-  score: number | string;
-  tissue: string;
-  cell_type: string;
-  is_supporting: boolean | string;
+  pvalue?: number | string;
+  effect_size?: number | string;
+  score?: number | string;
+  tissue?: string;
+  cell_type?: string;
   ancestry?: string;
   sex?: string;
 }
 
+// A gene at a locus + its evidence rows. The redesign dropped the computed
+// integration columns (rank/score/effector); the heatmap derives its "#"
+// column live as COUNT(DISTINCT evidence_category). An empty `evidence` array
+// = a candidate (neighborhood) gene with no evidence.
 export interface LocusGene {
   gene_symbol: string;
-  distance_to_lead_kb: number | string;
-  is_nearest_gene: boolean | string;
-  is_within_locus: boolean | string;
-  integration_score: number | string;
-  integration_rank: number | string;
-  is_predicted_effector: boolean | string;
   evidence: LocusGeneEvidence[];
 }
 

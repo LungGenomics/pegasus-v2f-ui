@@ -52,7 +52,7 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
   const categoryKeys = Object.keys(categories);
   const [popover, setPopover] = useState<PopoverState>(null);
   const [sortKey, setSortKey] = useState<SortKey>("#");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expandedGenes, setExpandedGenes] = useState<Set<string>>(new Set());
   const popoverRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -84,12 +84,22 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
     return map;
   }, [genes]);
 
+  // Live replacement for the dropped integration_rank: a gene's distinct
+  // evidence-category count (the old "gene score" was exactly this). Drives
+  // the "#" column + its default sort. 0 for candidate (no-evidence) genes.
+  const catCount = useCallback(
+    (gene: LocusGene) => evidenceMap.get(gene.gene_symbol)?.size ?? 0,
+    [evidenceMap],
+  );
+
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir(key === "#" || key === "gene" ? "asc" : "desc");
+      // "#" (category count) and category columns: most-evidence first (desc);
+      // gene name: A→Z (asc).
+      setSortDir(key === "gene" ? "asc" : "desc");
     }
   };
 
@@ -99,17 +109,15 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
 
     arr.sort((a, b) => {
       if (sortKey === "#") {
-        const ra = typeof a.integration_rank === "number" ? a.integration_rank : parseFloat(String(a.integration_rank)) || 999;
-        const rb = typeof b.integration_rank === "number" ? b.integration_rank : parseFloat(String(b.integration_rank)) || 999;
-        return (ra - rb) * dir;
+        return (catCount(a) - catCount(b)) * dir;
       }
       if (sortKey === "gene") {
         return a.gene_symbol.localeCompare(b.gene_symbol) * dir;
       }
       const aEvs = evidenceMap.get(a.gene_symbol)?.get(sortKey);
       const bEvs = evidenceMap.get(b.gene_symbol)?.get(sortKey);
-      const aMax = aEvs ? Math.max(...aEvs.map((e) => typeof e.score === "number" ? e.score : parseFloat(String(e.score)) || 0)) : 0;
-      const bMax = bEvs ? Math.max(...bEvs.map((e) => typeof e.score === "number" ? e.score : parseFloat(String(e.score)) || 0)) : 0;
+      const aMax = aEvs ? Math.max(...aEvs.map((e) => typeof e.score === "number" ? e.score : parseFloat(String(e.score ?? "")) || 0)) : 0;
+      const bMax = bEvs ? Math.max(...bEvs.map((e) => typeof e.score === "number" ? e.score : parseFloat(String(e.score ?? "")) || 0)) : 0;
       if (aMax !== bMax) return (aMax - bMax) * dir;
       return ((aEvs?.length ?? 0) - (bEvs?.length ?? 0)) * dir;
     });
@@ -196,10 +204,10 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
         <tbody>
           {sorted.map((gene) => {
             const catMap = evidenceMap.get(gene.gene_symbol);
-            const rank =
-              typeof gene.integration_rank === "number"
-                ? gene.integration_rank
-                : parseFloat(String(gene.integration_rank)) || null;
+            // "#" column = live distinct-category count (0 → "-" for
+            // candidate genes with no evidence).
+            const n = catCount(gene);
+            const rank = n > 0 ? n : null;
             const isExpanded = expandedGenes.has(gene.gene_symbol);
 
             return (
@@ -320,7 +328,7 @@ function GeneRow({
               : <ChevronRight className="size-3 text-base-content/30" />
             }
             <Link
-              to={`/genes/${encodeURIComponent(gene.gene_symbol)}`}
+              to={`/explore/gene/${encodeURIComponent(gene.gene_symbol)}`}
               className="link link-primary"
               onClick={(e) => {
                 e.stopPropagation();

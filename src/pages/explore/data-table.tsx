@@ -4,8 +4,10 @@
 // source-workarea preview grid's look (table-sm, pin-rows, clickable
 // header sort cycle none→asc→desc).
 
-import { useMemo, useState } from "react";
-import { ArrowUp, ArrowDown, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Search } from "lucide-react";
+
+const PAGE_SIZES = [25, 50, 100, 250];
 
 export interface Column<T> {
   key: string;
@@ -52,6 +54,8 @@ export function DataTable<T>({
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(
     initialSort ?? null,
   );
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(0);
 
   const colByKey = useMemo(
     () => Object.fromEntries(columns.map((c) => [c.key, c])),
@@ -83,6 +87,18 @@ export function DataTable<T>({
       if (s.dir === "asc") return { key, dir: "desc" };
       return null;
     });
+
+  // Client-side pagination over the sorted rows (counts are small). Reset to
+  // the first page whenever the result set or page size changes.
+  const total = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  useEffect(() => {
+    setPage(0);
+  }, [filter, sort, pageSize, rows]);
+  const pageRows = useMemo(
+    () => sorted.slice(page * pageSize, page * pageSize + pageSize),
+    [sorted, page, pageSize],
+  );
 
   return (
     <div className="flex flex-col min-h-0 h-full">
@@ -124,7 +140,7 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {sorted.length === 0 ? (
+            {total === 0 ? (
               <tr>
                 <td
                   colSpan={columns.length}
@@ -134,7 +150,7 @@ export function DataTable<T>({
                 </td>
               </tr>
             ) : (
-              sorted.map((row, i) => (
+              pageRows.map((row, i) => (
                 <tr
                   key={i}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
@@ -156,11 +172,54 @@ export function DataTable<T>({
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-base-content/40 mt-2">
-        {sorted.length.toLocaleString()}
-        {filtered.length !== rows.length ? ` of ${rows.length.toLocaleString()}` : ""}{" "}
-        rows
-      </p>
+
+      {/* Footer: row count + page size + pagers — matches the source preview. */}
+      <div className="flex flex-wrap items-center justify-between gap-y-2 mt-2 text-xs text-base-content/60">
+        <div className="flex items-center gap-3">
+          <span className="whitespace-nowrap">
+            {total.toLocaleString()}
+            {filtered.length !== rows.length
+              ? ` of ${rows.length.toLocaleString()}`
+              : ""}{" "}
+            rows
+          </span>
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="select select-bordered select-xs"
+            title="Rows per page"
+          >
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n} / page
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            title="Previous page"
+            className="text-base-content/40 hover:text-base-content disabled:opacity-30 disabled:hover:text-base-content/40 cursor-pointer"
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+          <span className="whitespace-nowrap">
+            Page {page + 1} of {totalPages.toLocaleString()}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1}
+            title="Next page"
+            className="text-base-content/40 hover:text-base-content disabled:opacity-30 disabled:hover:text-base-content/40 cursor-pointer"
+          >
+            <ArrowRight className="size-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
