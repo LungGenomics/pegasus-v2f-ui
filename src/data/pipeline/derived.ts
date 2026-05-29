@@ -33,10 +33,13 @@ async function count(sql: string): Promise<number> {
   return Number(row?.n ?? 0);
 }
 
-export async function rebuildDerived(): Promise<RebuildDerivedResult> {
+export async function rebuildDerived(
+  actor: string | null = null,
+): Promise<RebuildDerivedResult> {
   // 0. Register traits referenced by column-scope mappings so the evidence
   //    view's label→trait_id join resolves (else trait_id is all NULL).
-  await ensureColumnScopeTraits();
+  //    Auto-derived traits are attributed to the rebuild's actor.
+  await ensureColumnScopeTraits(actor);
   // 1. evidence view (depends only on mappings/transforms).
   await buildEvidenceView();
   // 2. gene reference — full parquet, cached (no refetch if already loaded).

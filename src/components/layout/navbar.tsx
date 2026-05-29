@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import { signIn, signOut } from "../../data/syncClient";
+import { getDirtyState } from "../../data/dirtyState";
 import { emitSessionChange, useSyncSession } from "../../hooks/useSyncSession";
 
 const links = [
@@ -10,6 +12,15 @@ const links = [
 ];
 
 export function Navbar() {
+  // Unpublished-changes badge on the Database tab. Keyed under ["config", …]
+  // so the many invalidateQueries(["config"]) calls on source/mapping edits
+  // refresh it for free (dirty state is a function of config).
+  const dirtyQ = useQuery({
+    queryKey: ["config", "dirty-state"],
+    queryFn: getDirtyState,
+  });
+  const dirty = dirtyQ.data?.anyDirty ?? false;
+
   return (
     <nav className="bg-base-100">
       <div className="flex items-center h-13 px-6 w-full">
@@ -25,10 +36,16 @@ export function Navbar() {
               key={link.to}
               to={link.to}
               className={({ isActive }) =>
-                `text-sm ${isActive ? "text-primary font-medium" : "text-base-content/60 hover:text-base-content"}`
+                `text-sm relative ${isActive ? "text-primary font-medium" : "text-base-content/60 hover:text-base-content"}`
               }
             >
               {link.label}
+              {link.to === "/database" && dirty && (
+                <span
+                  title="Unpublished changes"
+                  className="absolute -right-2 top-0 size-1.5 rounded-full bg-warning"
+                />
+              )}
             </NavLink>
           ))}
           <SyncSessionBadge />

@@ -64,6 +64,17 @@ export function TraitDetailPage() {
   const trackRef = useRef<GenomeTrackHandle>(null);
 
   const [locusFilter, setLocusFilter] = useState("");
+  // Loci are named by cytoband (locus_name); the coordinate is derivable from
+  // the geometry. Toggle which one labels the track + list.
+  const [labelMode, setLabelMode] = useState<"cytoband" | "coords">("cytoband");
+
+  const lociLabel = useCallback(
+    (l: LocusRow): string =>
+      labelMode === "coords"
+        ? formatCoordinate(l.chromosome ?? "", l.start_position ?? 0, l.end_position ?? 0)
+        : l.locus_name || l.lead_rsid || l.locus_id,
+    [labelMode],
+  );
 
   // Color loci by their loci-mapping source_tag when a trait spans more than
   // one (multi-source analogue of the old per-study coloring).
@@ -95,11 +106,11 @@ export function TraitDetailPage() {
         chr: withChr(l.chromosome ?? ""),
         start: l.start_position ?? 0,
         end: l.end_position ?? 0,
-        label: l.locus_name || l.lead_rsid || l.locus_id,
+        label: lociLabel(l),
         trait: multiSource ? (l.source_tag ?? undefined) : undefined,
         pvalue: l.lead_pvalue ?? undefined,
       })),
-    [loci, multiSource],
+    [loci, multiSource, lociLabel],
   );
 
   // Text filter → which track triangles + list rows stay visible.
@@ -274,6 +285,22 @@ export function TraitDetailPage() {
             </button>
           )}
         </label>
+        <div className="inline-flex bg-base-200 rounded-md p-0.5 text-xs">
+          {(["cytoband", "coords"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setLabelMode(m)}
+              className={`px-2 py-0.5 rounded-md cursor-pointer ${
+                labelMode === m
+                  ? "bg-base-100 text-base-content font-medium shadow-sm"
+                  : "text-base-content/60 hover:text-base-content"
+              }`}
+            >
+              {m === "cytoband" ? "Cytoband" : "Coordinates"}
+            </button>
+          ))}
+        </div>
         {chromQ.data && (
           <div className="ml-auto">
             <TrackControls
@@ -299,6 +326,7 @@ export function TraitDetailPage() {
         selectedLocusId={selectedLocusId}
         onSelect={setSelectedLocus}
         sourceColors={multiSource ? sourceColors : undefined}
+        labelMode={labelMode}
       />
 
       <TraitSourcesPanel traitId={traitId} />
@@ -315,6 +343,7 @@ function LociPane({
   selectedLocusId,
   onSelect,
   sourceColors,
+  labelMode,
 }: {
   loci: LocusRow[];
   traitId: string;
@@ -322,7 +351,11 @@ function LociPane({
   selectedLocusId?: string;
   onSelect: (id: string | null) => void;
   sourceColors?: Record<string, string>;
+  labelMode: "cytoband" | "coords";
 }) {
+  const cyto = (l: LocusRow) => l.locus_name || l.locus_id;
+  const coord = (l: LocusRow) =>
+    formatCoordinate(l.chromosome ?? "", l.start_position ?? 0, l.end_position ?? 0);
   const selected = selectedLocusId
     ? loci.find((l) => l.locus_id === selectedLocusId)
     : undefined;
@@ -365,14 +398,10 @@ function LociPane({
             />
           )}
           <span className="text-sm font-medium font-mono min-w-0 truncate">
-            {l.locus_name || l.locus_id}
+            {labelMode === "coords" ? coord(l) : cyto(l)}
           </span>
           <span className="text-xs text-base-content/40 hidden sm:inline">
-            {formatCoordinate(
-              l.chromosome ?? "",
-              l.start_position ?? 0,
-              l.end_position ?? 0,
-            )}
+            {labelMode === "coords" ? cyto(l) : coord(l)}
           </span>
           <span className="text-xs text-base-content/40 ml-auto tabular-nums shrink-0">
             {l.n_candidate_genes ?? 0} genes

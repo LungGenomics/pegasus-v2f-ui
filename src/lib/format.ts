@@ -17,7 +17,10 @@ export function formatCoordinate(
   start: number,
   end: number,
 ): string {
-  return `chr${chr}:${formatNumber(start)}-${formatNumber(end)}`;
+  // Normalize: the redesigned schema stores chromosomes as "chr1"; older data
+  // used bare "1". Strip any existing prefix so we never produce "chrchr1".
+  const c = String(chr).replace(/^chr/i, "");
+  return `chr${c}:${formatNumber(start)}-${formatNumber(end)}`;
 }
 
 export function formatScore(s: number | string): string {

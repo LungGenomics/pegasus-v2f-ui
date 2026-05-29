@@ -18,6 +18,7 @@ import { listSources } from "../sourceOps";
 import { listMappingsForSource } from "../mappingOps";
 import { buildTransformedPipeline } from "../rawData";
 import { mappingProjections } from "./evidence";
+import { cytobandLabel } from "../cytobands";
 import type { ConfigMapping } from "../../api/types";
 
 const MAIN_LOCI_DDL = `CREATE TABLE IF NOT EXISTS main.loci (
@@ -169,7 +170,37 @@ export async function buildLoci(): Promise<BuildLociResult[]> {
       );
     }
   }
+
+  await nameLociByCytoband();
   return results;
+}
+
+/** Name loci by their cytogenetic band (locus_name), restoring the old
+ *  pipeline's behavior. The coordinate string stays derivable from the
+ *  geometry columns (chromosome/start/end), so the UI can toggle between the
+ *  two. Computed in JS from the bundled hg38 cytoband table. */
+async function nameLociByCytoband(): Promise<void> {
+  const ds = getDataSource();
+  const rows = await ds.query<{
+    locus_id: string;
+    chromosome: string | null;
+    start_position: number | null;
+    end_position: number | null;
+  }>({
+    sql: "SELECT locus_id, chromosome, start_position, end_position FROM main.loci",
+  });
+  for (const r of rows) {
+    if (!r.chromosome || r.start_position == null || r.end_position == null) continue;
+    const name = cytobandLabel(
+      r.chromosome,
+      Number(r.start_position),
+      Number(r.end_position),
+    );
+    await ds.exec({
+      sql: "UPDATE main.loci SET locus_name = ? WHERE locus_id = ?",
+      params: [name, r.locus_id],
+    });
+  }
 }
 
 /** The loci mapping's canonical projection (its variants), or null if it

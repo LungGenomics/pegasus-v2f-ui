@@ -121,6 +121,8 @@ export async function ensureColumnScopeTraits(
       for (const r of rows) {
         const label = String(r.label ?? "").trim();
         if (label) {
+          // Signs at creation via the threaded actor. No backfill — pre-fix
+          // unsigned rows clear on a fresh rebuild (dev: nuke + recreate).
           await findOrCreateByLabel(label, actor);
           seen += 1;
         }
