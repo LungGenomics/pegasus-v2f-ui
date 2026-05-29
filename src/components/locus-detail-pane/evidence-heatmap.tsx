@@ -10,8 +10,9 @@ type Props = {
   onGeneClick?: (gene: string) => void;
 };
 
-/** Map category abbreviation to a hue for the heatmap cell fill */
-const CATEGORY_HUES: Record<string, string> = {
+/** Map category abbreviation to a hue for the heatmap cell fill. Exported so
+ *  the landing-page category glossary can show matching color dots. */
+export const CATEGORY_HUES: Record<string, string> = {
   QTL: "217",   // blue
   COLOC: "217",
   GWAS: "271",  // purple

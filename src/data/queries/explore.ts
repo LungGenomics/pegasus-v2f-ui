@@ -88,6 +88,37 @@ export async function listTraits(): Promise<TraitRow[]> {
 // source-via-mapping, owned by the Sources tab. Loci carry their source_tag
 // for provenance.)
 
+// --- Landing stats ---
+
+export interface LandingStats {
+  traits: number;
+  studies: number;
+  loci: number;
+  genomeBuild: string;
+}
+
+/** At-a-glance counts for the landing page. Resilient to a not-yet-built
+ *  derived layer (main.loci may not exist) — loci falls back to 0. */
+export async function landingStats(): Promise<LandingStats> {
+  const ds = getDataSource();
+  const one = async (sql: string): Promise<number> => {
+    try {
+      const [r] = await ds.query<{ n: number }>({ sql });
+      return Number(r?.n ?? 0);
+    } catch {
+      return 0;
+    }
+  };
+  const [traits, studies, loci] = await Promise.all([
+    one("SELECT COUNT(*) AS n FROM config.traits"),
+    one(
+      "SELECT COUNT(DISTINCT source_id) AS n FROM config.mappings WHERE target = 'loci'",
+    ),
+    one("SELECT COUNT(*) AS n FROM main.loci"),
+  ]);
+  return { traits, studies, loci, genomeBuild: "hg38" };
+}
+
 // --- Trait detail ---
 
 export interface TraitDetail {
