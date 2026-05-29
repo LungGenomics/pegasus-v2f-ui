@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { Navbar } from "./components/layout/navbar";
+import { Footer } from "./components/layout/footer";
 import { AppRoutes } from "./routes";
 import {
   initDataSource,
@@ -117,12 +118,12 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-base-100">
+    <div className="min-h-screen flex flex-col bg-base-100">
       <Navbar />
       {syncError && (
         <div
           role="alert"
-          className="alert alert-error rounded-none text-sm py-2 flex"
+          className="alert alert-error rounded-none text-sm py-2 flex shrink-0"
         >
           <span className="flex-1">Sync sign-in rejected: {syncError}</span>
           <button
@@ -134,9 +135,10 @@ export function App() {
           </button>
         </div>
       )}
-      <main className={isLanding ? "" : "px-6 py-6"}>
+      <main className={`flex-1 ${isLanding ? "" : "px-6 py-6"}`}>
         <AppRoutes />
       </main>
+      <Footer />
     </div>
   );
 }
