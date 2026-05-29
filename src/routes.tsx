@@ -1,39 +1,29 @@
 import { Routes, Route, Navigate } from "react-router";
 import { LandingPage } from "./pages/landing";
 import { SourcesPage } from "./pages/sources";
-import { ExplorePage } from "./pages/explore";
-import { LociList } from "./pages/explore/loci-list";
-import { GenesList } from "./pages/explore/genes-list";
-import { TraitsList } from "./pages/explore/traits-list";
-import { DetailStub } from "./pages/explore/detail-stub";
-import { TraitDetailPage } from "./pages/explore/trait-detail";
+import { SearchPage } from "./pages/explore/search";
+import { BrowsePage } from "./pages/browse";
+import { LocusDetailPage } from "./pages/explore/locus-detail";
+import { GeneDetailPage } from "./pages/explore/gene-detail";
 import { DatabasePage } from "./pages/database";
 
-// Redesigned IA: a landing/home at index, plus the three main surfaces
-// (Sources · Explore · Database). The old IA's pages (traits/genes/config/
-// query/settings/sources-catalog) remain in src/pages for porting but are no
-// longer routed.
-//
-// Explore is a nested route: the shell (entity sub-nav + Outlet) wraps the
-// four browse lists; detail routes use a stub until those slices land.
+// Redesigned IA: landing at index, then Sources · Search · Browse · Admin.
+//   - Search: a search box → ranked gene/locus/trait results (no auto-jump).
+//     gene/locus → detail pages; trait → Browse with it selected.
+//   - Browse: trait sidebar + the selected trait's detail (genome track etc.).
+//   - Detail pages (gene/locus) are standalone with a "Search / name"
+//     breadcrumb. Trait detail has no standalone route — it lives in Browse.
+//   - Admin: the DB file / sync / tables / SQL / activity / settings surface.
 export function AppRoutes() {
   return (
     <Routes>
       <Route index element={<LandingPage />} />
       <Route path="sources" element={<SourcesPage />} />
-      <Route path="explore" element={<ExplorePage />}>
-        <Route index element={<Navigate to="/explore/loci" replace />} />
-        <Route path="loci" element={<LociList />} />
-        <Route path="genes" element={<GenesList />} />
-        <Route path="traits" element={<TraitsList />} />
-      </Route>
-      {/* Detail routes (stubs for now) — outside the browse shell. Study is
-          not a browse entity: it's a proxy for a source-via-mapping, owned by
-          the Sources tab; loci carry their source_tag for provenance. */}
-      <Route path="explore/locus/:id" element={<DetailStub kind="locus" />} />
-      <Route path="explore/gene/:symbol" element={<DetailStub kind="gene" />} />
-      <Route path="explore/trait/:id" element={<TraitDetailPage />} />
-      <Route path="database" element={<DatabasePage />} />
+      <Route path="search" element={<SearchPage />} />
+      <Route path="browse" element={<BrowsePage />} />
+      <Route path="gene/:symbol" element={<GeneDetailPage />} />
+      <Route path="locus/:id" element={<LocusDetailPage />} />
+      <Route path="admin" element={<DatabasePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

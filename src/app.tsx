@@ -2,17 +2,67 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { Navbar } from "./components/layout/navbar";
 import { AppRoutes } from "./routes";
-import { SplashPage } from "./pages/splash";
 import {
   initDataSource,
   isAttached,
   subscribeDataSource,
+  loadSharedDuckDB,
+  createNewDuckDB,
 } from "./data/select";
+import { hasSavedDuckDB } from "./data/opfs";
 import { captureSyncRedirect } from "./data/syncClient";
+
+// Boot: use the cached DB if there is one; otherwise pull the shared DB from
+// R2; if there's no shared DB (or it errors), start a blank one. The app is
+// always attached after boot — no drop-a-file splash.
+//
+// Critical: the shared/blank fallback (createNewDuckDB CLEARS OPFS) must run
+// ONLY when there's genuinely no saved DB. If a saved DB exists but failed to
+// attach (e.g. a transient OPFS lock), we must NOT nuke it — surface a
+// reload prompt instead. Returns a boot error string, or null on success.
+//
+// Singleton: StrictMode double-invokes the boot effect in dev. Two concurrent
+// createNewDuckDB() calls would race on the OPFS file and self-deadlock
+// (createWritable → NoModificationAllowedError), so boot must run exactly once.
+let _bootPromise: Promise<string | null> | null = null;
+function bootDb(): Promise<string | null> {
+  return (_bootPromise ??= bootDbOnce());
+}
+
+async function bootDbOnce(): Promise<string | null> {
+  try {
+    await initDataSource();
+  } catch (err) {
+    console.error("DataSource init failed:", err);
+  }
+  if (isAttached()) return null;
+
+  // A saved DB exists but didn't attach → don't destroy it; reload usually
+  // clears the transient OPFS lock.
+  if (await hasSavedDuckDB()) {
+    return "Your saved database is locked (another tab or a stale worker). Reload to retry.";
+  }
+
+  // No cached DB → pull shared, else start blank (nothing to lose).
+  try {
+    await loadSharedDuckDB();
+    return null;
+  } catch (err) {
+    console.warn("No shared database to load — starting blank.", err);
+  }
+  try {
+    await createNewDuckDB();
+    return null;
+  } catch (err) {
+    console.error("Could not create a blank database:", err);
+    return err instanceof Error ? err.message : String(err);
+  }
+}
 
 export function App() {
   const [booted, setBooted] = useState(false);
   const [attached, setAttached] = useState(isAttached());
+  const [bootError, setBootError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -21,14 +71,13 @@ export function App() {
     const { error } = captureSyncRedirect();
     if (error) setSyncError(error);
     let cancelled = false;
-    initDataSource()
-      .catch((err) => console.error("DataSource init failed:", err))
-      .finally(() => {
-        if (!cancelled) {
-          setAttached(isAttached());
-          setBooted(true);
-        }
-      });
+    bootDb().then((bootErr) => {
+      if (!cancelled) {
+        setBootError(bootErr);
+        setAttached(isAttached());
+        setBooted(true);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -53,7 +102,18 @@ export function App() {
   }
 
   if (!attached) {
-    return <SplashPage />;
+    return (
+      <div className="min-h-screen bg-base-100 flex items-center justify-center px-6">
+        <div className="text-sm text-error max-w-lg text-center">
+          Could not initialize a database. Reload to retry.
+          {bootError && (
+            <p className="mt-2 font-mono text-xs break-words opacity-80">
+              {bootError}
+            </p>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (

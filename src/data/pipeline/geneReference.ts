@@ -1,25 +1,19 @@
-// Gene-reference loader. Fetches the hg38 gene-coordinate parquet
-// (config.pegasus_settings.gene_reference_url) ONCE per session and
-// materializes it into a local table `main.gene_reference`. The
-// locus_evidence view joins this local table — so the parquet is read over
-// the network once, not on every query (plan 2026-05-28, Q3 refinement).
+// Gene-reference loader. Loads the hg38 gene-coordinate parquet ONCE per
+// session into a local table `main.gene_reference`. The parquet is BUNDLED
+// with the frontend (src/data/gene_reference.parquet, ~2.6 MB, GENCODE v49)
+// rather than fetched from R2 — guarantees availability, no CORS, works
+// offline. The locus_evidence view joins this local table.
 //
 // Columns (produced by scripts/build_gene_reference.py):
 //   gene_symbol, ensembl_gene_id, chromosome, start, end, strand, gene_type
 // Chromosome is UCSC style ("chr1") = the canonical internal format.
 //
 // main.gene_reference is session-local working state — reconstructable from
-// the URL, so it is NOT published (the publish path excludes main.* derived
-// relations).
+// the bundled asset, so it is NOT published (publish excludes main.* derived).
 
 import { getDataSource } from "../select";
-
-// The gene reference is infrastructure, not user config — its URL is a
-// built-in constant (the hg38 GENCODE parquet on the project R2 bucket, same
-// bucket as the DB sync). config.pegasus_settings.gene_reference_url is an
-// optional override for swapping builds, not something a user normally sets.
-export const DEFAULT_GENE_REFERENCE_URL =
-  "https://pub-3dbe6972d0bd4328a532eba3d5fa449d.r2.dev/reference/gencode_genes_hg38.parquet";
+// Bundled asset → a hashed URL emitted to dist (not inlined into the JS).
+import geneReferenceUrl from "../gene_reference.parquet?url";
 
 const REGISTER_NAME = "_gene_reference.parquet";
 
@@ -33,15 +27,6 @@ async function tableExists(name: string): Promise<boolean> {
   }
 }
 
-/** The effective gene-reference URL: the optional settings override, else the
- *  built-in default. */
-export async function getGeneReferenceUrl(): Promise<string> {
-  const ds = getDataSource();
-  const [row] = await ds.query<{ gene_reference_url: string | null }>({
-    sql: "SELECT gene_reference_url FROM config.pegasus_settings WHERE id = 1",
-  });
-  return row?.gene_reference_url || DEFAULT_GENE_REFERENCE_URL;
-}
 
 /** Whether main.gene_reference is already loaded (non-empty). */
 export async function geneReferenceLoaded(): Promise<boolean> {
@@ -82,13 +67,11 @@ export async function ensureGeneReference(force = false): Promise<number> {
     return Number(c?.n ?? 0);
   }
 
-  const url = await getGeneReferenceUrl();
-  // Fetch the bytes and register them so read_parquet can see the file
-  // (same fetch→register pattern as the raw loader — avoids relying on
-  // httpfs being available in the WASM bundle).
-  const res = await fetch(url, { redirect: "follow" });
+  // Fetch the bundled parquet (same-origin asset) and register the bytes so
+  // read_parquet can see the file (fetch→register pattern, no httpfs needed).
+  const res = await fetch(geneReferenceUrl);
   if (!res.ok) {
-    throw new Error(`Gene reference fetch failed (${res.status}): ${url}`);
+    throw new Error(`Gene reference load failed (${res.status})`);
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
 

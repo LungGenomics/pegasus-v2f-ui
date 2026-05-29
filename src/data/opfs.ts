@@ -41,7 +41,7 @@ export async function hasSavedDuckDB(): Promise<boolean> {
   // The localStorage meta marker is the authoritative "is there a saved DB"
   // signal. clearDuckDB() removes it first — so even if the OPFS file
   // deletion fails (e.g., still briefly locked by a just-terminated worker),
-  // the next page load sees "no saved DB" and shows the splash.
+  // the next page load sees "no saved DB" and boots shared-or-blank.
   if (!getMeta()) return false;
   if (!isOpfsAvailable()) return false;
   try {

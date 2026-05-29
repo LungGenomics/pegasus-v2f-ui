@@ -27,7 +27,10 @@ import {
   getPegasusSettings,
   updatePegasusSettings,
 } from "../data/settingsOps";
-import { listGeneBiotypes } from "../data/pipeline/geneReference";
+import {
+  listGeneBiotypes,
+  ensureGeneReference,
+} from "../data/pipeline/geneReference";
 import {
   rebuildDerived,
   type RebuildDerivedResult,
@@ -40,17 +43,28 @@ const BIOTYPE_PRESETS: { label: string; codes: string[] }[] = [
 ];
 
 type Section = "sync" | "gene" | "tables" | "sql" | "activity" | "settings";
-const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
-  { id: "sync", label: "Sync", icon: Cloud },
-  { id: "gene", label: "Gene reference", icon: Dna },
+// `auth` sections mutate/push the database (Sync publishes, Gene reference
+// rebuilds, Settings configures) → curator-only, hidden until signed in.
+// Tables / SQL / Activity are read/inspect and stay open.
+const SECTIONS: { id: Section; label: string; icon: LucideIcon; auth?: boolean }[] = [
+  { id: "sync", label: "Sync", icon: Cloud, auth: true },
+  { id: "gene", label: "Gene reference", icon: Dna, auth: true },
   { id: "tables", label: "Tables", icon: Table },
   { id: "sql", label: "SQL", icon: Terminal },
   { id: "activity", label: "Activity", icon: History },
-  { id: "settings", label: "Settings", icon: Settings },
+  { id: "settings", label: "Settings", icon: Settings, auth: true },
 ];
 
 export function DatabasePage() {
+  const session = useSyncSession();
+  const sections = SECTIONS.filter((s) => session || !s.auth);
   const [section, setSection] = useState<Section>("sync");
+  // Keep the active section valid for the current visibility (e.g. after
+  // sign-out hides the section you were on → fall back to the first visible).
+  const active = sections.some((s) => s.id === section)
+    ? section
+    : (sections[0]?.id ?? "tables");
+
   const dirtyQ = useQuery({
     queryKey: ["config", "dirty-state"],
     queryFn: getDirtyState,
@@ -58,12 +72,12 @@ export function DatabasePage() {
   const dirty = dirtyQ.data?.anyDirty ?? false;
 
   // Tables/SQL fill the pane (internal scroll); the rest scroll as cards.
-  const fill = section === "tables" || section === "sql";
+  const fill = active === "tables" || active === "sql";
 
   return (
     <div className="grid gap-6 h-[calc(100vh-6.25rem)] grid-cols-[minmax(180px,220px)_1fr]">
       <nav className="self-start max-h-full border border-base-300 rounded-lg p-1.5 flex flex-col gap-0.5 overflow-auto">
-        {SECTIONS.map((s) => {
+        {sections.map((s) => {
           const Icon = s.icon;
           return (
             <button
@@ -71,7 +85,7 @@ export function DatabasePage() {
               type="button"
               onClick={() => setSection(s.id)}
               className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm text-left cursor-pointer ${
-                section === s.id
+                active === s.id
                   ? "bg-base-200 text-base-content font-medium"
                   : "text-base-content/60 hover:bg-base-200/50 hover:text-base-content"
               }`}
@@ -90,16 +104,16 @@ export function DatabasePage() {
       </nav>
 
       <div className={`min-w-0 h-full min-h-0 ${fill ? "" : "overflow-auto"}`}>
-        {section === "sync" && <DatabasePanel />}
-        {section === "gene" && <DerivedDataSection />}
-        {section === "activity" && <AuditPanel />}
-        {section === "settings" && <SettingsPanel />}
-        {section === "tables" && (
+        {active === "sync" && <DatabasePanel />}
+        {active === "gene" && <DerivedDataSection />}
+        {active === "activity" && <AuditPanel />}
+        {active === "settings" && <SettingsPanel />}
+        {active === "tables" && (
           <div className="h-full">
             <TableBrowser />
           </div>
         )}
-        {section === "sql" && (
+        {active === "sql" && (
           <div className="h-full">
             <SqlConsole />
           </div>
@@ -122,7 +136,12 @@ function DerivedDataSection() {
   });
   const biotypesQ = useQuery({
     queryKey: ["gene-biotypes"],
-    queryFn: listGeneBiotypes,
+    // Load the bundled gene reference (if not already) so the biotype list
+    // populates without waiting for a full rebuild.
+    queryFn: async () => {
+      await ensureGeneReference();
+      return listGeneBiotypes();
+    },
   });
 
   const [busy, setBusy] = useState(false);

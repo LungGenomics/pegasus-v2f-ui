@@ -7,8 +7,9 @@ import { emitSessionChange, useSyncSession } from "../../hooks/useSyncSession";
 
 const links = [
   { to: "/sources", label: "Sources" },
-  { to: "/explore", label: "Explore" },
-  { to: "/database", label: "Database" },
+  { to: "/search", label: "Search" },
+  { to: "/browse", label: "Browse" },
+  { to: "/admin", label: "Admin" },
 ];
 
 export function Navbar() {
@@ -40,7 +41,7 @@ export function Navbar() {
               }
             >
               {link.label}
-              {link.to === "/database" && dirty && (
+              {link.to === "/admin" && dirty && (
                 <span
                   title="Unpublished changes"
                   className="absolute -right-2 top-0 size-1.5 rounded-full bg-warning"

@@ -329,7 +329,7 @@ function GeneRow({
               : <ChevronRight className="size-3 text-base-content/30" />
             }
             <Link
-              to={`/explore/gene/${encodeURIComponent(gene.gene_symbol)}`}
+              to={`/gene/${encodeURIComponent(gene.gene_symbol)}`}
               className="link link-primary"
               onClick={(e) => {
                 e.stopPropagation();

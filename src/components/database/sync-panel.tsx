@@ -5,7 +5,7 @@
 // and a published-version history list with Restore. GitHub-Desktop-ish status
 // + Vercel-deployments-ish history.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   UploadCloud,
@@ -14,7 +14,8 @@ import {
   Loader2,
   Lock,
   Download,
-  Trash2,
+  Upload,
+  FilePlus2,
 } from "lucide-react";
 import {
   fetchSyncInfo,
@@ -31,7 +32,8 @@ import {
   exportDuckDB,
   exportDuckDBBytes,
   loadSharedDuckDB,
-  detachDuckDB,
+  createNewDuckDB,
+  attachDuckDBFile,
 } from "../../data/select";
 import { getDirtyState, snapshotPublishState } from "../../data/dirtyState";
 import { useSyncSession } from "../../hooks/useSyncSession";
@@ -52,6 +54,7 @@ export function DatabasePanel() {
   const session = useSyncSession();
   const [busy, setBusy] = useState<"publish" | "pull" | string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const dirtyQ = useQuery({
     queryKey: ["config", "dirty-state"],
@@ -110,16 +113,22 @@ export function DatabasePanel() {
 
   const doExport = () => run("export", async () => exportDuckDB());
 
-  const doForget = () =>
-    run("forget", async () => {
+  const doNew = () =>
+    run("new", async () => {
       if (
         !window.confirm(
-          "Forget the saved database? This detaches it from the browser; unpublished changes not exported are lost.",
+          "Start a blank database? The current one is unloaded — publish or export first to keep it.",
         )
       ) {
         return;
       }
-      await detachDuckDB();
+      await createNewDuckDB();
+      void qc.invalidateQueries();
+    });
+
+  const doUpload = (file: File) =>
+    run("upload", async () => {
+      await attachDuckDBFile(file);
       void qc.invalidateQueries();
     });
 
@@ -222,6 +231,31 @@ export function DatabasePanel() {
           Pull latest
         </button>
         <div className="ml-auto flex items-center gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".duckdb"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) doUpload(f);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy !== null}
+            className="btn btn-ghost btn-sm gap-1"
+            title="Load a .duckdb file from disk (replaces the current one)"
+          >
+            {busy === "upload" ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Upload className="size-3.5" />
+            )}
+            Upload
+          </button>
           <button
             type="button"
             onClick={doExport}
@@ -238,17 +272,17 @@ export function DatabasePanel() {
           </button>
           <button
             type="button"
-            onClick={doForget}
+            onClick={doNew}
             disabled={busy !== null}
             className="btn btn-ghost btn-sm gap-1 text-base-content/50 hover:text-error"
-            title="Forget the saved database"
+            title="Unload and start a blank database"
           >
-            {busy === "forget" ? (
+            {busy === "new" ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : (
-              <Trash2 className="size-3.5" />
+              <FilePlus2 className="size-3.5" />
             )}
-            Forget
+            New
           </button>
         </div>
       </div>

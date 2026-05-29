@@ -1,5 +1,5 @@
 // Landing / home for the redesigned IA — shown at index ("/") once a DB is
-// attached (the pre-attach gate is still SplashPage). Search-first hero
+// attached (boot loads shared-or-blank automatically). Search-first hero
 // (branding + unified search → Explore), then an About section: 3 concept
 // cards that expand a detail panel below the row.
 
@@ -22,7 +22,7 @@ export function LandingPage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = query.trim();
-    navigate(q ? `/explore?q=${encodeURIComponent(q)}` : "/explore");
+    navigate(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
   };
 
   return (
@@ -45,7 +45,7 @@ export function LandingPage() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search for genes, loci, traits, studies…"
+            placeholder="Search for genes, loci, or traits…"
             className="flex-1 bg-transparent outline-none text-sm text-base-content placeholder:text-base-content/50"
           />
           <button
@@ -63,7 +63,7 @@ export function LandingPage() {
             <button
               key={term}
               type="button"
-              onClick={() => navigate(`/explore?q=${encodeURIComponent(term)}`)}
+              onClick={() => navigate(`/search?q=${encodeURIComponent(term)}`)}
               className="text-xs px-2.5 py-1 rounded-full border border-base-300 text-base-content/50 hover:text-base-content hover:border-base-content/30 transition-colors cursor-pointer"
             >
               {term}

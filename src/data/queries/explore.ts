@@ -208,16 +208,19 @@ export async function traitSources(traitId: string): Promise<TraitSourceRow[]> {
   }));
 }
 
-/** Build LocusGene[] for the evidence heatmap at one locus, scoped to a
- *  trait. Genes whose only rows are candidate stubs (match_type='candidate',
- *  NULL evidence) come back with an empty evidence[] = neighborhood genes. */
+/** Build LocusGene[] for the evidence heatmap at one locus. With `traitIds`,
+ *  real evidence is scoped to those traits (candidate stubs are always
+ *  included — neighborhood genes belong to the locus, not a trait). Empty/
+ *  omitted = all evidence at the locus (every trait). Genes whose only rows
+ *  are candidate stubs come back with an empty evidence[] = neighborhood
+ *  genes. */
 export async function locusGenes(
   locusId: string,
-  traitId: string,
+  traitIds?: string[],
 ): Promise<LocusGene[]> {
   const ds = getDataSource();
-  // Candidate stubs aren't trait-scoped (a neighborhood gene belongs to the
-  // locus, not a trait); real evidence is trait-scoped.
+  const scoped = traitIds && traitIds.length > 0;
+  const placeholders = scoped ? traitIds!.map(() => "?").join(", ") : "";
   const rows = await ds.query<{
     gene_symbol: string;
     match_type: string;
@@ -238,8 +241,10 @@ export async function locusGenes(
       "       ancestry, sex " +
       "FROM main.locus_evidence " +
       "WHERE locus_id = ? AND gene_symbol IS NOT NULL " +
-      "  AND (match_type = 'candidate' OR trait_id = ?)",
-    params: [locusId, traitId],
+      (scoped
+        ? `  AND (match_type = 'candidate' OR trait_id IN (${placeholders}))`
+        : ""),
+    params: scoped ? [locusId, ...traitIds!] : [locusId],
   });
 
   const byGene = new Map<string, LocusGene>();
@@ -268,4 +273,118 @@ export async function locusGenes(
   return [...byGene.values()].sort((a, b) =>
     a.gene_symbol.localeCompare(b.gene_symbol),
   );
+}
+
+// --- Locus detail ---
+
+export async function getLocus(locusId: string): Promise<LocusRow | null> {
+  const ds = getDataSource();
+  const [row] = await ds.query<LocusRow>({
+    sql:
+      "SELECT locus_id, locus_name, chromosome, start_position, end_position, " +
+      "       lead_rsid, lead_pvalue, n_signals, n_candidate_genes, source_tag " +
+      "FROM main.loci WHERE locus_id = ? LIMIT 1",
+    params: [locusId],
+  });
+  return row ?? null;
+}
+
+export interface TraitLink {
+  trait_id: string;
+  label: string;
+  n_evidence: number;
+  n_genes: number;
+}
+
+/** Traits implicated at a locus (have ≥1 non-candidate evidence row). */
+export async function locusTraits(locusId: string): Promise<TraitLink[]> {
+  const ds = getDataSource();
+  return ds.query<TraitLink>({
+    sql:
+      "SELECT t.id AS trait_id, t.label, " +
+      "       COUNT(*) AS n_evidence, " +
+      "       COUNT(DISTINCT le.gene_symbol) AS n_genes " +
+      "FROM main.locus_evidence le JOIN config.traits t ON t.id = le.trait_id " +
+      "WHERE le.locus_id = ? AND le.match_type <> 'candidate' " +
+      "GROUP BY t.id, t.label ORDER BY n_evidence DESC",
+    params: [locusId],
+  });
+}
+
+// --- Gene detail ---
+
+export interface GeneDetail {
+  gene_symbol: string;
+  ensembl_gene_id: string | null;
+  chromosome: string | null;
+  start: number | null;
+  end: number | null;
+  strand: string | null;
+  gene_type: string | null;
+}
+
+export async function getGene(symbol: string): Promise<GeneDetail | null> {
+  const ds = getDataSource();
+  const [row] = await ds.query<GeneDetail>({
+    sql:
+      "SELECT gene_symbol, ensembl_gene_id, chromosome, start, \"end\", strand, " +
+      "       gene_type FROM main.gene_reference WHERE gene_symbol = ? LIMIT 1",
+    params: [symbol],
+  });
+  return row ?? null;
+}
+
+/** Loci implicating a gene (it appears in their locus_evidence). */
+export async function geneLoci(symbol: string): Promise<LocusRow[]> {
+  const ds = getDataSource();
+  return ds.query<LocusRow>({
+    sql:
+      "SELECT DISTINCT l.locus_id, l.locus_name, l.chromosome, " +
+      "       l.start_position, l.end_position, l.lead_rsid, l.lead_pvalue, " +
+      "       l.n_signals, l.n_candidate_genes, l.source_tag " +
+      "FROM main.loci l JOIN main.locus_evidence le ON le.locus_id = l.locus_id " +
+      "WHERE le.gene_symbol = ? ORDER BY l.chromosome, l.start_position",
+    params: [symbol],
+  });
+}
+
+/** Traits with evidence for a gene. */
+export async function geneTraits(symbol: string): Promise<TraitLink[]> {
+  const ds = getDataSource();
+  return ds.query<TraitLink>({
+    sql:
+      "SELECT t.id AS trait_id, t.label, " +
+      "       COUNT(*) AS n_evidence, " +
+      "       COUNT(DISTINCT le.locus_id) AS n_genes " + // n_genes column reused as n_loci
+      "FROM main.locus_evidence le JOIN config.traits t ON t.id = le.trait_id " +
+      "WHERE le.gene_symbol = ? AND le.match_type <> 'candidate' " +
+      "GROUP BY t.id, t.label ORDER BY n_evidence DESC",
+    params: [symbol],
+  });
+}
+
+export interface GeneEvidenceRow {
+  evidence_category: string | null;
+  source_tag: string | null;
+  trait_label: string | null;
+  pvalue: number | string | null;
+  effect_size: number | string | null;
+  score: number | string | null;
+  tissue: string | null;
+  match_type: string;
+}
+
+/** Flat evidence rows for a gene (across all its loci/traits). */
+export async function geneEvidence(symbol: string): Promise<GeneEvidenceRow[]> {
+  const ds = getDataSource();
+  return ds.query<GeneEvidenceRow>({
+    sql:
+      "SELECT le.evidence_category, le.source_tag, t.label AS trait_label, " +
+      "       le.pvalue, le.effect_size, le.score, le.tissue, le.match_type " +
+      "FROM main.locus_evidence le " +
+      "LEFT JOIN config.traits t ON t.id = le.trait_id " +
+      "WHERE le.gene_symbol = ? AND le.match_type <> 'candidate' " +
+      "ORDER BY le.evidence_category",
+    params: [symbol],
+  });
 }

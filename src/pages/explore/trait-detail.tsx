@@ -8,7 +8,7 @@
 // from the old trait-detail page — Sam wanted it kept.
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import {
@@ -33,9 +33,9 @@ function withChr(c: string): string {
   return c.startsWith("chr") ? c : `chr${c}`;
 }
 
-export function TraitDetailPage() {
-  const { id: rawId } = useParams<{ id: string }>();
-  const traitId = rawId ? decodeURIComponent(rawId) : "";
+// Trait-detail content, rendered inside the Browse page for the selected
+// trait. (No standalone route — Browse owns trait selection via ?trait=.)
+export function TraitDetail({ traitId }: { traitId: string }) {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const traitQ = useQuery({
@@ -234,10 +234,7 @@ export function TraitDetailPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <Link to="/explore/traits" className="text-xs text-primary hover:underline">
-        ← Traits
-      </Link>
-      <h1 className="text-lg font-semibold mt-2">{trait?.label ?? traitId}</h1>
+      <h1 className="text-lg font-semibold">{trait?.label ?? traitId}</h1>
       {trait?.description && (
         <p className="text-sm text-base-content/60 mt-1">{trait.description}</p>
       )}
@@ -415,7 +412,7 @@ function LociPane({
 function LocusDetail({ locus, traitId }: { locus: LocusRow; traitId: string }) {
   const genesQ = useQuery({
     queryKey: ["explore", "locus-genes", locus.locus_id, traitId],
-    queryFn: () => locusGenes(locus.locus_id, traitId),
+    queryFn: () => locusGenes(locus.locus_id, [traitId]),
   });
 
   return (
