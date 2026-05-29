@@ -128,7 +128,7 @@ function FieldsEditor({
               value={f.raw_column}
               onChange={(v) => update(i, { raw_column: v })}
               columns={transformedColumns}
-              placeholder="raw column"
+              placeholder="column"
               invalid={isUnknownColumn(f.raw_column, transformedColumns)}
             />
             <button
@@ -475,7 +475,7 @@ export function MappingCardForm({
           {traitScopeUI === "column" && (
             <div className="space-y-2">
               <div>
-                <FieldLabel>Trait column (raw)</FieldLabel>
+                <FieldLabel>Trait column</FieldLabel>
                 <ColumnCombobox
                   value={draft.trait_column?.raw_column ?? ""}
                   onChange={(raw) =>
@@ -494,7 +494,7 @@ export function MappingCardForm({
                     })
                   }
                   columns={transformedColumns}
-                  placeholder="raw column with trait label"
+                  placeholder="column with trait label"
                   invalid={isUnknownColumn(
                     draft.trait_column?.raw_column ?? "",
                     transformedColumns,
@@ -519,7 +519,7 @@ export function MappingCardForm({
                     })
                   }
                   columns={transformedColumns}
-                  placeholder="raw column with trait ID"
+                  placeholder="column with trait ID"
                   invalid={isUnknownColumn(
                     draft.trait_column?.trait_id_lookup ?? "",
                     transformedColumns,

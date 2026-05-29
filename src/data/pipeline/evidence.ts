@@ -17,6 +17,7 @@ import { getDataSource } from "../select";
 import { buildTransformedPipeline } from "../rawData";
 import { listSources } from "../sourceOps";
 import { listMappingsForSource } from "../mappingOps";
+import { findOrCreateByLabel } from "../traitOps";
 import { CANONICAL_FIELDS } from "../canonicalFields";
 import type { ConfigMapping } from "../../api/types";
 
@@ -85,6 +86,48 @@ export function mappingProjections(
   }
 
   return [select(traitIdExpr(null))];
+}
+
+/** For column-scope evidence mappings (trait read per-row from a column,
+ *  no trait_id_lookup), register each DISTINCT label in that column as a trait
+ *  in config.traits. Without this the evidence view's label→trait_id join
+ *  finds nothing and the Traits list is empty. Idempotent
+ *  (findOrCreateByLabel). Returns the number of distinct labels seen. Run
+ *  BEFORE buildEvidenceView so the join resolves. */
+export async function ensureColumnScopeTraits(
+  actor: string | null = null,
+): Promise<number> {
+  const ds = getDataSource();
+  const sources = await listSources();
+  let seen = 0;
+  for (const src of sources) {
+    const mappings = await listMappingsForSource(src.id);
+    const colMappings = mappings.filter(
+      (m) =>
+        m.target === "evidence" &&
+        m.trait_scope === "column" &&
+        m.trait_column &&
+        !m.trait_column.trait_id_lookup,
+    );
+    if (colMappings.length === 0) continue;
+    const pipeline = await buildTransformedPipeline(src.id);
+    for (const m of colMappings) {
+      const col = m.trait_column!.raw_column;
+      const rows = await ds.query<{ label: string }>({
+        sql:
+          `SELECT DISTINCT ${ident(col)} AS label FROM (${pipeline}) ` +
+          `WHERE ${ident(col)} IS NOT NULL`,
+      });
+      for (const r of rows) {
+        const label = String(r.label ?? "").trim();
+        if (label) {
+          await findOrCreateByLabel(label, actor);
+          seen += 1;
+        }
+      }
+    }
+  }
+  return seen;
 }
 
 /** (Re)create main.evidence from the current evidence-target mappings.

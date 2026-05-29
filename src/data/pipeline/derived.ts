@@ -11,7 +11,7 @@
 // EvidenceForBiotypes).
 
 import { getDataSource } from "../select";
-import { buildEvidenceView } from "./evidence";
+import { buildEvidenceView, ensureColumnScopeTraits } from "./evidence";
 import { buildLoci, type BuildLociResult } from "./loci";
 import { ensureGeneReference } from "./geneReference";
 import { buildLocusEvidenceView } from "./locusEvidence";
@@ -34,6 +34,9 @@ async function count(sql: string): Promise<number> {
 }
 
 export async function rebuildDerived(): Promise<RebuildDerivedResult> {
+  // 0. Register traits referenced by column-scope mappings so the evidence
+  //    view's label→trait_id join resolves (else trait_id is all NULL).
+  await ensureColumnScopeTraits();
   // 1. evidence view (depends only on mappings/transforms).
   await buildEvidenceView();
   // 2. gene reference — full parquet, cached (no refetch if already loaded).

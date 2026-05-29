@@ -1,30 +1,39 @@
-// Explore tab (redesign) — placeholder. The read side: a unified polymorphic
-// search (gene / locus / chr:pos / rsID / trait / study) → conventional list
-// results → detail pages you traverse one hop at a time. Genome track lives
-// on positional detail pages, not here.
+// Explore tab (redesign) — browse slice. The shell: a secondary entity
+// sub-nav (Loci · Genes · Traits · Studies) + an <Outlet/> for the active
+// browse list. Unified search + detail pages are later slices; for now rows
+// link to detail stubs.
 
-import { Search } from "lucide-react";
+import { NavLink, Outlet } from "react-router";
+
+const ENTITIES = [
+  { to: "/explore/loci", label: "Loci" },
+  { to: "/explore/genes", label: "Genes" },
+  { to: "/explore/traits", label: "Traits" },
+  { to: "/explore/studies", label: "Studies" },
+];
 
 export function ExplorePage() {
   return (
-    <div className="max-w-3xl mx-auto">
-      <h1 className="text-lg font-semibold mb-1">Explore</h1>
-      <p className="text-sm text-base-content/60 mb-6">
-        Search loci, genes, traits, and studies across the live database, then
-        drill into detail pages and traverse related entities.
-      </p>
-
-      <div className="relative mb-6">
-        <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40" />
-        <input
-          disabled
-          className="input input-bordered w-full pl-9"
-          placeholder="Search a gene, locus, region (chr:start-end), rsID, trait, or study…"
-        />
+    <div className="h-[calc(100vh-6.25rem)] flex flex-col min-h-0">
+      <div className="flex items-center gap-5 mb-4 shrink-0">
+        {ENTITIES.map((e) => (
+          <NavLink
+            key={e.to}
+            to={e.to}
+            className={({ isActive }) =>
+              `text-sm ${
+                isActive
+                  ? "text-primary font-medium"
+                  : "text-base-content/60 hover:text-base-content"
+              }`
+            }
+          >
+            {e.label}
+          </NavLink>
+        ))}
       </div>
-
-      <div className="border border-dashed border-base-300 rounded-lg p-10 text-center text-sm text-base-content/40">
-        Placeholder — unified search results (list) and detail pages go here.
+      <div className="flex-1 min-h-0">
+        <Outlet />
       </div>
     </div>
   );
