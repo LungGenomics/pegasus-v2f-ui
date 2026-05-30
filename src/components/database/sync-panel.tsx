@@ -187,7 +187,8 @@ export function DatabasePanel() {
             <span className="text-warning">
               {dirty.dirtySources.size} of {dirty.total} source
               {dirty.total === 1 ? "" : "s"} changed since last publish
-              {dirty.hasDeletions ? " (+ deletions)" : ""}.
+              {dirty.hasDeletions ? " (+ deletions)" : ""}
+              {dirty.globalDirty ? " (+ trait/settings edits)" : ""}.
             </span>
           ) : (
             <span className="text-success">Up to date with the published version.</span>

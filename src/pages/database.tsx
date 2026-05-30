@@ -196,6 +196,8 @@ function DerivedDataSection() {
       void qc.invalidateQueries({ queryKey: ["gene-biotypes"] });
       void qc.invalidateQueries({ queryKey: ["explore"] });
       void qc.invalidateQueries({ queryKey: ["landing-stats"] });
+      // candidate_gene_biotypes is part of the snapshot — refresh dirty state.
+      void qc.invalidateQueries({ queryKey: ["config"] });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

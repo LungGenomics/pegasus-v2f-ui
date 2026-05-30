@@ -13,6 +13,13 @@ import { listSources } from "./sourceOps";
 import { listMappingsForSource } from "./mappingOps";
 import { listSourceTransforms } from "./sourceTransformOps";
 
+// Reserved _publish_state key for config that isn't owned by any source —
+// trait entities and the singleton settings. The nil UUID is never a real
+// source id, and _publish_state has no FK, so storing the global sig under it
+// is safe. Publish snapshots the whole DB, so a trait/ontology or settings
+// edit must flip dirty even when no source changed.
+const GLOBAL_CONFIG_KEY = "00000000-0000-0000-0000-000000000000";
+
 /** Deterministic JSON: object keys sorted recursively. */
 function canon(v: unknown): string {
   if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
@@ -91,6 +98,26 @@ export async function computeSourceSig(
   });
 }
 
+/** Signature of config not owned by a source — trait entities + the singleton
+ *  settings. `row_version` (bumped on every trait/settings write) is the
+ *  catch-all; the explicit columns make a diff debuggable. */
+export async function computeGlobalConfigSig(): Promise<string> {
+  const ds = getDataSource();
+  const traits = await ds.query<Record<string, unknown>>({
+    sql:
+      "SELECT id, label, description, primary_ontology, primary_ontology_id, " +
+      "ontology_label, trait_kind, trait_kind_overridden, row_version " +
+      "FROM config.traits ORDER BY id",
+  });
+  const [settings] = await ds.query<Record<string, unknown>>({
+    sql:
+      "SELECT window_kb, merge_distance_kb, candidate_gene_biotypes, " +
+      "locus_definition_source, row_version " +
+      "FROM config.pegasus_settings WHERE id = 1",
+  });
+  return canon({ traits, settings: settings ?? null });
+}
+
 export interface DirtyState {
   /** source_id → true when its sig differs from the published snapshot
    *  (or it was never published). */
@@ -98,6 +125,8 @@ export interface DirtyState {
   /** A source_id present in _publish_state but no longer in
    *  config.sources — deleted since the last publish. */
   hasDeletions: boolean;
+  /** Non-source config (traits / settings) differs from the snapshot. */
+  globalDirty: boolean;
   anyDirty: boolean;
   total: number;
 }
@@ -131,16 +160,29 @@ export async function getDirtyState(): Promise<DirtyState> {
   }
   let hasDeletions = false;
   for (const id of published.keys()) {
+    if (id === GLOBAL_CONFIG_KEY) continue; // sentinel, not a source
     if (!currentIds.has(id)) {
       hasDeletions = true;
       break;
     }
   }
 
+  // Non-source config (traits + settings).
+  const globalSig = await computeGlobalConfigSig();
+  const globalDirty = published.get(GLOBAL_CONFIG_KEY) !== globalSig;
+  if (globalDirty) {
+    console.warn(
+      `[dirty] global config (traits/settings): ${
+        published.has(GLOBAL_CONFIG_KEY) ? "sig differs" : "no _publish_state row"
+      }`,
+    );
+  }
+
   return {
     dirtySources,
     hasDeletions,
-    anyDirty: dirtySources.size > 0 || hasDeletions,
+    globalDirty,
+    anyDirty: dirtySources.size > 0 || hasDeletions || globalDirty,
     total: sources.length,
   };
 }
@@ -163,6 +205,11 @@ export async function snapshotPublishState(
       params: [s.id, sig],
     });
   }
+  // Non-source config (traits + settings) baseline, under the reserved key.
+  await ds.exec({
+    sql: "INSERT INTO config._publish_state (source_id, sig) VALUES (?, ?)",
+    params: [GLOBAL_CONFIG_KEY, await computeGlobalConfigSig()],
+  });
   await ds.exec({ sql: "DELETE FROM config._publish_meta" });
   await ds.exec({
     sql:

@@ -53,6 +53,9 @@ export function TraitEditor({
     await Promise.all([
       qc.invalidateQueries({ queryKey: ["traits"] }),
       qc.invalidateQueries({ queryKey: ["explore", "trait", traitId] }),
+      // Trait metadata is part of the published snapshot — refresh the dirty
+      // indicator (keyed under ["config", "dirty-state"]).
+      qc.invalidateQueries({ queryKey: ["config"] }),
     ]);
   };
 

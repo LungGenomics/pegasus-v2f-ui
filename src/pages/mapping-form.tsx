@@ -9,7 +9,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
-import { CANONICAL_FIELDS, REQUIRED_FIELDS } from "../data/canonicalFields";
+import { CANONICAL_FIELDS, requiredFields } from "../data/canonicalFields";
 import { EVIDENCE_CATEGORIES } from "../data/static";
 import { ColumnCombobox } from "./column-combobox";
 import type {
@@ -79,17 +79,41 @@ function FieldsEditor({
   value,
   onChange,
   transformedColumns,
+  target,
 }: {
   value: MappingField[];
   onChange: (v: MappingField[]) => void;
   transformedColumns: string[];
+  target: MappingTarget;
 }) {
-  const hasGeneSymbol = value.some((f) => f.canonical_field === "gene_symbol");
+  const required = requiredFields(target);
+  const isRequired = (field: string) => required.includes(field);
+
+  // Required fields for this target are always present (auto-seeded) and not
+  // removable — the user only fills in their raw column.
+  useEffect(() => {
+    const present = new Set(value.map((f) => f.canonical_field));
+    const missing = required.filter((r) => !present.has(r));
+    if (missing.length > 0) {
+      onChange([
+        ...missing.map((r) => ({ canonical_field: r, raw_column: "" })),
+        ...value,
+      ]);
+    }
+  }, [required, value, onChange]);
+
   const anyUnknown = value.some((f) =>
     isUnknownColumn(f.raw_column, transformedColumns),
   );
+  // Required fields still missing a mapped column.
+  const unmapped = required.filter(
+    (r) =>
+      !value.some(
+        (f) => f.canonical_field === r && f.raw_column.trim() !== "",
+      ),
+  );
   // Canonical fields not yet used — the next-add picker defaults to the
-  // first unused one so users don't repeatedly add `gene_symbol` rows.
+  // first unused one so users don't repeatedly add the same row.
   const used = new Set(value.map((f) => f.canonical_field));
   const firstUnused =
     CANONICAL_FIELDS.find((c) => !used.has(c)) ?? CANONICAL_FIELDS[0]!;
@@ -103,24 +127,21 @@ function FieldsEditor({
 
   return (
     <div className="space-y-1.5">
-      {value.length === 0 ? (
-        <p className="text-xs text-base-content/40">
-          No fields yet — add at least <span className="font-mono">gene_symbol</span>.
-        </p>
-      ) : (
-        value.map((f, i) => (
+      {value.map((f, i) => {
+        const req = isRequired(f.canonical_field);
+        return (
           <div key={i} className="flex items-center gap-1">
             <select
               value={f.canonical_field}
-              onChange={(e) =>
-                update(i, { canonical_field: e.target.value })
-              }
-              className="select select-bordered select-sm font-mono w-[40%]"
+              disabled={req}
+              onChange={(e) => update(i, { canonical_field: e.target.value })}
+              className="select select-bordered select-sm font-mono w-[40%] disabled:opacity-100"
+              title={req ? "Required for this target" : undefined}
             >
               {CANONICAL_FIELDS.map((c) => (
                 <option key={c} value={c}>
                   {c}
-                  {REQUIRED_FIELDS.has(c) ? " *" : ""}
+                  {isRequired(c) ? " *" : ""}
                 </option>
               ))}
             </select>
@@ -131,17 +152,26 @@ function FieldsEditor({
               placeholder="column"
               invalid={isUnknownColumn(f.raw_column, transformedColumns)}
             />
-            <button
-              type="button"
-              onClick={() => remove(i)}
-              className="text-base-content/40 hover:text-error cursor-pointer shrink-0"
-              title="Remove field"
-            >
-              <X className="size-3.5" />
-            </button>
+            {req ? (
+              <span
+                className="shrink-0 px-1 text-base-content/30"
+                title="Required field — not removable"
+              >
+                *
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                className="text-base-content/40 hover:text-error cursor-pointer shrink-0"
+                title="Remove field"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
           </div>
-        ))
-      )}
+        );
+      })}
       <button
         type="button"
         onClick={add}
@@ -150,9 +180,10 @@ function FieldsEditor({
         <Plus className="size-3" />
         Add field
       </button>
-      {!hasGeneSymbol && value.length > 0 && (
+      {unmapped.length > 0 && (
         <p className="text-xs text-warning">
-          Missing required <span className="font-mono">gene_symbol</span>.
+          Map a column for:{" "}
+          <span className="font-mono">{unmapped.join(", ")}</span>.
         </p>
       )}
       {anyUnknown && (
@@ -578,6 +609,7 @@ export function MappingCardForm({
             onChange({ fields: v.length > 0 ? v : undefined })
           }
           transformedColumns={transformedColumns}
+          target={target}
         />
       </div>
     </div>

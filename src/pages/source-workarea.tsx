@@ -45,6 +45,7 @@ import {
   type UpdateMappingPatch,
 } from "../data/mappingOps";
 import { listTraits, findOrCreateByLabel } from "../data/traitOps";
+import { requiredFields } from "../data/canonicalFields";
 import { rebuildDerived } from "../data/pipeline/derived";
 import type {
   ConfigMapping,
@@ -1224,13 +1225,22 @@ function MappingCard({
 
   const isNew = !persisted;
   const isDirty = JSON.stringify(draft) !== JSON.stringify(initial);
-  // Required: gene_symbol field with a non-empty raw_column.
-  const hasGeneSymbol = (draft.fields ?? []).some(
-    (f) => f.canonical_field === "gene_symbol" && f.raw_column.trim() !== "",
+  // Required fields depend on the target (evidence → gene_symbol; loci →
+  // chromosome + position). Each must have a non-empty raw_column.
+  const missingRequired = requiredFields(draft.target).filter(
+    (rf) =>
+      !(draft.fields ?? []).some(
+        (f) => f.canonical_field === rf && f.raw_column.trim() !== "",
+      ),
   );
+  const hasAllRequired = missingRequired.length === 0;
   const hasSourceTag = draft.source_tag.trim() !== "";
+  // Evidence-target mappings must carry a PEGASUS evidence category.
+  const needsCategory = draft.target === "evidence";
+  const hasCategory =
+    !needsCategory || (draft.evidence_category ?? "").trim() !== "";
   const canSave =
-    hasSourceTag && hasGeneSymbol && (isNew || isDirty);
+    hasSourceTag && hasAllRequired && hasCategory && (isNew || isDirty);
 
   const onChange = (patch: Partial<ConfigMapping>) =>
     setDraft((d) => ({ ...d, ...patch }));
@@ -1300,9 +1310,11 @@ function MappingCard({
   const showFooter = isNew || isDirty;
   const saveTitle = !hasSourceTag
     ? "Source tag is required"
-    : !hasGeneSymbol
-      ? "gene_symbol field is required"
-      : undefined;
+    : !hasAllRequired
+      ? `Map a column for: ${missingRequired.join(", ")}`
+      : !hasCategory
+        ? "Evidence category is required"
+        : undefined;
 
   return (
     <div className="border border-base-300 bg-base-200/60 rounded-lg p-3 space-y-3">
