@@ -1,13 +1,10 @@
 import type { DataSource } from "../types";
 import type { Migration } from "./types";
 import { migration as m001 } from "./001-redesigned-schema";
-import { migration as m002 } from "./002-publish-tracker";
-import { migration as m003 } from "./003-audit-columns";
-import { migration as m004 } from "./004-derived-layer-settings";
 
-const ALL_MIGRATIONS: Migration[] = [m001, m002, m003, m004].sort(
-  (a, b) => a.version - b.version,
-);
+// Single base schema — 001 folds in every former incremental migration
+// (002 publish-tracker, 003 audit-columns, 004 derived-layer-settings).
+const ALL_MIGRATIONS: Migration[] = [m001];
 
 async function ensureMigrationsTable(ds: DataSource): Promise<void> {
   // Bootstrap step — runs before any migration so the SELECT below

@@ -84,6 +84,9 @@ async function buildOne(
              TRY_CAST(pvalue AS DOUBLE) AS pvalue
       FROM (${variantsSql}) _proj
       WHERE chromosome IS NOT NULL
+        -- Drop dirty chromosome sentinels ('NA', 'N/A', '.', '') — they'd
+        -- otherwise materialize an unplottable "chrNA" locus.
+        AND UPPER(TRIM(CAST(chromosome AS VARCHAR))) NOT IN ('NA', 'N/A', 'NULL', '.', '')
         AND TRY_CAST(position AS BIGINT) IS NOT NULL
     ),
     windows AS (

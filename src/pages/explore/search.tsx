@@ -21,7 +21,7 @@ const TYPE_META: Record<
 > = {
   gene: { icon: Dna, label: "gene", route: (k) => `/gene/${encodeURIComponent(k)}`, unit: "loci", unitOne: "locus" },
   locus: { icon: MapPin, label: "locus", route: (k) => `/locus/${encodeURIComponent(k)}`, unit: "genes", unitOne: "gene" },
-  trait: { icon: Activity, label: "trait", route: (k) => `/browse?trait=${encodeURIComponent(k)}`, unit: "loci", unitOne: "locus" },
+  trait: { icon: Activity, label: "trait", route: (k) => `/traits?trait=${encodeURIComponent(k)}`, unit: "loci", unitOne: "locus" },
 };
 
 export function SearchPage() {

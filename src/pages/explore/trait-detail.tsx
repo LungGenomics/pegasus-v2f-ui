@@ -10,7 +10,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { X, Pencil } from "lucide-react";
+import { useSyncSession } from "../../hooks/useSyncSession";
+import { TraitEditor } from "../../components/trait-editor/trait-editor";
 import {
   getTrait,
   traitLoci,
@@ -33,10 +35,12 @@ function withChr(c: string): string {
   return c.startsWith("chr") ? c : `chr${c}`;
 }
 
-// Trait-detail content, rendered inside the Browse page for the selected
-// trait. (No standalone route — Browse owns trait selection via ?trait=.)
+// Trait-detail content, rendered inside the Traits page for the selected
+// trait. (No standalone route — Traits owns trait selection via ?trait=.)
 export function TraitDetail({ traitId }: { traitId: string }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const session = useSyncSession();
+  const [editing, setEditing] = useState(false);
 
   const traitQ = useQuery({
     queryKey: ["explore", "trait", traitId],
@@ -234,14 +238,32 @@ export function TraitDetail({ traitId }: { traitId: string }) {
 
   return (
     <div className="h-full overflow-auto">
-      <h1 className="text-lg font-semibold">{trait?.label ?? traitId}</h1>
-      {trait?.description && (
-        <p className="text-sm text-base-content/60 mt-1">{trait.description}</p>
-      )}
-      {trait?.primary_ontology_id && (
-        <p className="text-xs font-mono text-base-content/40 mt-0.5">
-          {trait.primary_ontology}:{trait.primary_ontology_id}
-        </p>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg font-semibold">{trait?.label ?? traitId}</h1>
+          {trait?.description && (
+            <p className="text-sm text-base-content/60 mt-1">{trait.description}</p>
+          )}
+          {trait?.primary_ontology_id && (
+            <p className="text-xs font-mono text-base-content/40 mt-0.5">
+              {trait.primary_ontology}:{trait.primary_ontology_id}
+            </p>
+          )}
+        </div>
+        {session && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            title="Edit trait metadata"
+            className="shrink-0 mt-0.5 p-1 rounded text-base-content/40 hover:text-base-content hover:bg-base-200 cursor-pointer"
+          >
+            <Pencil className="size-4" />
+          </button>
+        )}
+      </div>
+
+      {editing && (
+        <TraitEditor traitId={traitId} onClose={() => setEditing(false)} />
       )}
 
       {/* Genome track */}

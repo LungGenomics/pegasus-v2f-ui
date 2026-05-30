@@ -122,7 +122,7 @@ export function LocusDetailPage() {
           {traits.map((t) => (
             <Link
               key={t.trait_id}
-              to={`/browse?trait=${encodeURIComponent(t.trait_id)}`}
+              to={`/traits?trait=${encodeURIComponent(t.trait_id)}`}
               className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-base-200/50"
             >
               <span className="font-medium flex-1 min-w-0 truncate">{t.label}</span>

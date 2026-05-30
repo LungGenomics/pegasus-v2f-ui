@@ -91,10 +91,23 @@ export const GenomeTrack = forwardRef<GenomeTrackHandle, GenomeTrackProps>(funct
     onViewChange,
   });
 
+  // Drop loci on chromosomes the layout doesn't know (e.g. a malformed "NA"
+  // or an unplaced contig). toAbsolute throws on an unknown chromosome, so one
+  // bad row would otherwise crash the entire track.
+  const plottableLoci = useMemo(() => {
+    const ok = loci.filter((l) => layout.offsets.has(l.chr));
+    if (ok.length !== loci.length) {
+      console.warn(
+        `GenomeTrack: skipped ${loci.length - ok.length} locus/loci on unknown chromosomes`,
+      );
+    }
+    return ok;
+  }, [loci, layout.offsets]);
+
   // Memoize sorted loci and clusters
   const sortedLoci = useMemo(
-    () => sortLociByPosition(loci, layout.offsets),
-    [loci, layout.offsets],
+    () => sortLociByPosition(plottableLoci, layout.offsets),
+    [plottableLoci, layout.offsets],
   );
   const trackItems = useMemo(
     () => clusterLoci(sortedLoci, layout.bpToPixel, MIN_PIXEL_GAP),

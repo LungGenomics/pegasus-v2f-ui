@@ -399,6 +399,9 @@ export interface ConfigTrait {
   ontology_version?: string;
   parent_trait_id?: string;
   trait_kind?: "measurement" | "disease" | "phenotype" | "other";
+  /** True when trait_kind was set by an admin override — enrichment then
+   *  preserves it instead of re-inferring from the ontology ancestors. */
+  trait_kind_overridden?: boolean;
   synonyms?: string[];
   hierarchy_path?: TraitHierarchyNode[];
   ot_phenotypes?: TraitPhenotype[];

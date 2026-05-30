@@ -1,5 +1,5 @@
 // Database tab (redesign) — settings-style master/detail. Left: a list of
-// database sections (Sync · Gene reference · Tables · SQL · Activity ·
+// database sections (Sync · Candidate genes · Tables · SQL · Activity ·
 // Settings). Right: the selected section's content. Mirrors the Sources page
 // sidebar shell.
 
@@ -48,7 +48,7 @@ type Section = "sync" | "gene" | "tables" | "sql" | "activity" | "settings";
 // Tables / SQL / Activity are read/inspect and stay open.
 const SECTIONS: { id: Section; label: string; icon: LucideIcon; auth?: boolean }[] = [
   { id: "sync", label: "Sync", icon: Cloud, auth: true },
-  { id: "gene", label: "Gene reference", icon: Dna, auth: true },
+  { id: "gene", label: "Candidate genes", icon: Dna, auth: true },
   { id: "tables", label: "Tables", icon: Table },
   { id: "sql", label: "SQL", icon: Terminal },
   { id: "activity", label: "Activity", icon: History },
@@ -205,14 +205,15 @@ function DerivedDataSection() {
 
   return (
     <div className="space-y-3">
-      <h2 className="text-sm font-medium text-base-content/60">Gene reference</h2>
+      <h2 className="text-sm font-medium text-base-content/60">Candidate genes</h2>
       <p className="text-xs text-base-content/50">
         Candidate genes come from the built-in{" "}
-        <span className="font-medium">GENCODE</span> hg38 gene reference. Choose
-        which biotypes count as a locus's candidate genes, then Save to apply
-        (rebuilds <span className="font-mono">evidence</span>,{" "}
-        <span className="font-mono">loci</span>, and{" "}
-        <span className="font-mono">locus_evidence</span>).
+        <span className="font-medium">GENCODE</span> hg38 gene reference. The
+        derived layer (<span className="font-mono">evidence</span>,{" "}
+        <span className="font-mono">loci</span>,{" "}
+        <span className="font-mono">locus_evidence</span>) rebuilds automatically
+        when you edit mappings — use this only to change which gene biotypes
+        count as a locus's candidate genes, then Save to re-apply.
       </p>
 
       <div>
@@ -261,7 +262,7 @@ function DerivedDataSection() {
           <p className="text-xs text-base-content/40">
             {busy
               ? "Loading the gene reference…"
-              : "Rebuild to load the gene reference, then pick biotypes here."}
+              : "Save to load the gene reference, then pick biotypes here."}
           </p>
         )}
       </div>

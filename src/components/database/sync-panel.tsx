@@ -1,9 +1,8 @@
-// Combined Database panel: the one place for the DB file + its sync. Local
-// file controls (which DB is active · replace · export) come from
-// DataSourcePicker; below them, the R2 sync: status (sign-in, dirty count,
-// current published version), Publish (local → R2), Pull latest (R2 → local),
-// and a published-version history list with Restore. GitHub-Desktop-ish status
-// + Vercel-deployments-ish history.
+// Combined Database panel: the one place for the DB file + its sync. Provides
+// the local file actions (New · Pull · Upload · Export) and the R2 sync:
+// status (sign-in, dirty count, current published version), Publish (local →
+// R2), Pull latest (R2 → local), and a published-version history list with
+// Restore. GitHub-Desktop-ish status + Vercel-deployments-ish history.
 
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -108,7 +107,7 @@ export function DatabasePanel() {
         return;
       }
       await loadSharedDuckDB();
-      void qc.invalidateQueries(); // whole DB swapped
+      qc.clear(); // whole DB swapped — drop all cached data, not just refetch
     });
 
   const doExport = () => run("export", async () => exportDuckDB());
@@ -123,13 +122,13 @@ export function DatabasePanel() {
         return;
       }
       await createNewDuckDB();
-      void qc.invalidateQueries();
+      qc.clear(); // whole DB swapped — drop all cached data, not just refetch
     });
 
   const doUpload = (file: File) =>
     run("upload", async () => {
       await attachDuckDBFile(file);
-      void qc.invalidateQueries();
+      qc.clear(); // whole DB swapped — drop all cached data, not just refetch
     });
 
   const doRestore = (key: string) =>
@@ -145,7 +144,7 @@ export function DatabasePanel() {
       await restore(key);
       await releaseLock();
       await loadSharedDuckDB();
-      void qc.invalidateQueries();
+      qc.clear(); // whole DB swapped — drop all cached data, not just refetch
     });
 
   const info = infoQ.data;

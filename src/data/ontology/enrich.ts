@@ -85,7 +85,10 @@ async function runStage1(trait: ConfigTrait): Promise<Stage1Result | null> {
     fetchMappings(ontId).catch(() => []),
   ]);
 
-  const trait_kind = inferTraitKind(ancestors);
+  // An admin override wins over inference — preserve the hand-set kind.
+  const trait_kind = trait.trait_kind_overridden
+    ? trait.trait_kind
+    : inferTraitKind(ancestors);
 
   await upsertTrait({
     label: trait.label,

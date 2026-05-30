@@ -1,4 +1,4 @@
-// Browse — the track-centric trait browser. Left: traits ordered by most
+// Traits — the track-centric trait browser. Left: traits ordered by most
 // evidence (n_loci) with a filter box; collapses to a strip once a trait is
 // selected (like Sources). Right: that trait's detail (genome track + loci +
 // heatmap + sources). Selection in ?trait= so it's linkable.
@@ -10,7 +10,7 @@ import { Search, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { listTraits } from "../data/queries/explore";
 import { TraitDetail } from "./explore/trait-detail";
 
-export function BrowsePage() {
+export function TraitsPage() {
   const [params, setParams] = useSearchParams();
   const selected = params.get("trait");
   const [filter, setFilter] = useState("");

@@ -24,6 +24,7 @@ type TraitRow = {
   ontology_version: string | null;
   parent_trait_id: string | null;
   trait_kind: string | null;
+  trait_kind_overridden: boolean | null;
   synonyms: string | string[] | null;
   hierarchy_path: string | TraitHierarchyNode[] | null;
   ot_phenotypes: string | TraitPhenotype[] | null;
@@ -68,6 +69,8 @@ function rowToTrait(row: TraitRow): ConfigTrait {
   if (row.trait_kind != null) {
     out.trait_kind = row.trait_kind as ConfigTrait["trait_kind"];
   }
+  if (row.trait_kind_overridden != null)
+    out.trait_kind_overridden = Boolean(row.trait_kind_overridden);
   const syns = parseArray<string>(row.synonyms);
   if (syns) out.synonyms = syns;
   const hier = parseArray<TraitHierarchyNode>(row.hierarchy_path);
@@ -89,7 +92,8 @@ function rowToTrait(row: TraitRow): ConfigTrait {
 const TRAIT_COLS =
   "id, label, description, primary_ontology, primary_ontology_id, " +
   "ontology_label, xrefs, ontology_version, parent_trait_id, " +
-  "trait_kind, synonyms, hierarchy_path, ot_phenotypes, ot_drugs, " +
+  "trait_kind, trait_kind_overridden, synonyms, hierarchy_path, " +
+  "ot_phenotypes, ot_drugs, " +
   "ot_therapeutic_areas, last_enriched_at, row_version, " +
   "created_by, last_edited_by, created_at, updated_at";
 
@@ -135,6 +139,7 @@ export interface UpsertTraitInput {
   ontology_version?: string;
   parent_trait_id?: string;
   trait_kind?: ConfigTrait["trait_kind"];
+  trait_kind_overridden?: boolean;
   synonyms?: string[];
   hierarchy_path?: TraitHierarchyNode[];
   ot_phenotypes?: TraitPhenotype[];
@@ -178,7 +183,8 @@ export async function upsertTrait(
         "UPDATE config.traits SET " +
         "  description = ?, primary_ontology = ?, primary_ontology_id = ?, " +
         "  ontology_label = ?, xrefs = ?, ontology_version = ?, " +
-        "  parent_trait_id = ?, trait_kind = ?, synonyms = ?, " +
+        "  parent_trait_id = ?, trait_kind = ?, " +
+        "  trait_kind_overridden = ?, synonyms = ?, " +
         "  hierarchy_path = ?, ot_phenotypes = ?, ot_drugs = ?, " +
         "  ot_therapeutic_areas = ?, last_enriched_at = ?, " +
         "  last_edited_by = ?, " +
@@ -193,6 +199,7 @@ export async function upsertTrait(
         input.ontology_version ?? existing.ontology_version ?? null,
         input.parent_trait_id ?? existing.parent_trait_id ?? null,
         input.trait_kind ?? existing.trait_kind ?? null,
+        input.trait_kind_overridden ?? existing.trait_kind_overridden ?? false,
         input.synonyms ? JSON.stringify(input.synonyms) : null,
         input.hierarchy_path ? JSON.stringify(input.hierarchy_path) : null,
         input.ot_phenotypes ? JSON.stringify(input.ot_phenotypes) : null,
@@ -213,9 +220,10 @@ export async function upsertTrait(
       "INSERT INTO config.traits " +
       "  (label, description, primary_ontology, primary_ontology_id, " +
       "   ontology_label, xrefs, ontology_version, parent_trait_id, " +
-      "   trait_kind, synonyms, hierarchy_path, ot_phenotypes, ot_drugs, " +
+      "   trait_kind, trait_kind_overridden, synonyms, hierarchy_path, " +
+      "   ot_phenotypes, ot_drugs, " +
       "   ot_therapeutic_areas, last_enriched_at, created_by, last_edited_by) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     params: [
       input.label,
       input.description ?? null,
@@ -226,6 +234,7 @@ export async function upsertTrait(
       input.ontology_version ?? null,
       input.parent_trait_id ?? null,
       input.trait_kind ?? null,
+      input.trait_kind_overridden ?? false,
       input.synonyms ? JSON.stringify(input.synonyms) : null,
       input.hierarchy_path ? JSON.stringify(input.hierarchy_path) : null,
       input.ot_phenotypes ? JSON.stringify(input.ot_phenotypes) : null,

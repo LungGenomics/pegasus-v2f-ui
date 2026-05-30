@@ -45,6 +45,7 @@ import {
   type UpdateMappingPatch,
 } from "../data/mappingOps";
 import { listTraits, findOrCreateByLabel } from "../data/traitOps";
+import { rebuildDerived } from "../data/pipeline/derived";
 import type {
   ConfigMapping,
   ConfigSource,
@@ -1057,6 +1058,9 @@ function MappingsTab({
     return id;
   };
 
+  // True while the derived layer rebuilds after a mapping change.
+  const [rebuilding, setRebuilding] = useState(false);
+
   // Only "new" (unpersisted) cards live in tab state. Persisted cards are
   // rendered straight from the query and own their own draft internally.
   const [pendingNew, setPendingNew] = useState<PendingNewCard[]>([]);
@@ -1069,6 +1073,18 @@ function MappingsTab({
     void qc.invalidateQueries({ queryKey: ["mappings", sourceId] });
     // Dirty-tracker sig depends on mappings.
     void qc.invalidateQueries({ queryKey: ["config"] });
+    // The derived layer (column-scope traits, evidence, loci, and the gene
+    // reference) is a function of the mappings — rebuild it automatically so
+    // traits and loci reflect the change without a manual Admin rebuild.
+    // Fire-and-forget: the mapping write already succeeded, so a rebuild error
+    // must not surface as a save failure.
+    setRebuilding(true);
+    void rebuildDerived(actor)
+      .then(() => qc.invalidateQueries())
+      .catch((err) =>
+        console.error("Auto-rebuild of derived layer failed:", err),
+      )
+      .finally(() => setRebuilding(false));
   };
 
   const addNew = () => {
@@ -1136,6 +1152,11 @@ function MappingsTab({
           <Plus className="size-3.5" />
           Add mapping
         </button>
+        {rebuilding && (
+          <p className="text-xs text-base-content/40 text-center">
+            Rebuilding traits, loci &amp; evidence…
+          </p>
+        )}
       </div>
     </div>
   );

@@ -15,6 +15,11 @@ import type { Migration } from "./types";
 //   - No ON DELETE CASCADE on FKs (DuckDB doesn't support cascading
 //     actions). Children deleted manually in *Ops removal functions.
 //   - Each statement runs as its own exec() call.
+//
+// This is the single base schema: the former incremental migrations 002
+// (publish tracker), 003 (audit columns), 004 (derived-layer settings) and
+// the trait_kind_overridden flag are all folded in here. The DB is recreated
+// from scratch in dev, so no incremental migration history is kept.
 
 const STATEMENTS: string[] = [
   `CREATE SCHEMA IF NOT EXISTS config`,
@@ -38,6 +43,7 @@ const STATEMENTS: string[] = [
      ontology_version      VARCHAR,
      parent_trait_id       UUID REFERENCES config.traits(id),
      trait_kind            VARCHAR,
+     trait_kind_overridden BOOLEAN NOT NULL DEFAULT FALSE,
      synonyms              JSON,
      hierarchy_path        JSON,
      ot_phenotypes         JSON,
@@ -68,6 +74,7 @@ const STATEMENTS: string[] = [
      sheet           VARCHAR,
      skip_rows       INTEGER DEFAULT 0,
      row_version     INTEGER NOT NULL DEFAULT 1,
+     raw_version     INTEGER DEFAULT 0,
      created_by      VARCHAR,
      last_edited_by  VARCHAR,
      created_at      TIMESTAMP NOT NULL DEFAULT now(),
@@ -211,6 +218,22 @@ const STATEMENTS: string[] = [
 
   `INSERT INTO config.config_meta (id, schema_version) VALUES (1, 1)
      ON CONFLICT DO NOTHING`,
+
+  // -- publish tracker (local dirty-state for the explicit-Publish model,
+  // plan 2026-05-19). config.sources.raw_version (above) bumps on each
+  // (re)ingest; _publish_state snapshots each source's content signature at
+  // the last Publish; _publish_meta holds the last published R2 version key.
+  `CREATE TABLE IF NOT EXISTS config._publish_state (
+     source_id    UUID PRIMARY KEY,
+     sig          VARCHAR NOT NULL,
+     published_at TIMESTAMP NOT NULL DEFAULT now()
+   )`,
+
+  `CREATE TABLE IF NOT EXISTS config._publish_meta (
+     id           INTEGER PRIMARY KEY DEFAULT 1,
+     version_key  VARCHAR,
+     published_at TIMESTAMP
+   )`,
 
   // -- audit_log ------------------------------------------------------
   // Generic outbox for any config table change. Kept from the prior

@@ -6,9 +6,9 @@ import { getDirtyState } from "../../data/dirtyState";
 import { emitSessionChange, useSyncSession } from "../../hooks/useSyncSession";
 
 const links = [
-  { to: "/sources", label: "Sources" },
   { to: "/search", label: "Search" },
-  { to: "/browse", label: "Browse" },
+  { to: "/traits", label: "Traits" },
+  { to: "/sources", label: "Sources" },
   { to: "/admin", label: "Admin" },
 ];
 
