@@ -80,13 +80,15 @@ function FieldsEditor({
   onChange,
   transformedColumns,
   target,
+  centric,
 }: {
   value: MappingField[];
   onChange: (v: MappingField[]) => void;
   transformedColumns: string[];
   target: MappingTarget;
+  centric?: MappingCentric;
 }) {
-  const required = requiredFields(target);
+  const required = requiredFields(target, centric);
   const isRequired = (field: string) => required.includes(field);
 
   // Required fields for this target are always present (auto-seeded) and not
@@ -352,7 +354,7 @@ const TRAIT_SCOPES: readonly TraitScopeUI[] = [
 ] as const;
 
 const TARGETS: readonly MappingTarget[] = ["evidence", "loci"] as const;
-const CENTRICS: readonly MappingCentric[] = ["variant", "gene"] as const;
+const CENTRICS: readonly MappingCentric[] = ["gene", "variant"] as const;
 
 export function MappingCardForm({
   draft,
@@ -503,7 +505,7 @@ export function MappingCardForm({
           <div>
             <FieldLabel>Centric</FieldLabel>
             <SegmentedToggle
-              value={draft.centric ?? "variant"}
+              value={draft.centric ?? "gene"}
               options={CENTRICS}
               onChange={(c) => onChange({ centric: c })}
             />
@@ -639,6 +641,7 @@ export function MappingCardForm({
           }
           transformedColumns={transformedColumns}
           target={target}
+          centric={target === "evidence" ? draft.centric ?? "gene" : undefined}
         />
       </div>
     </div>

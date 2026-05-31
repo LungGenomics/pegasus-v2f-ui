@@ -1252,7 +1252,7 @@ function MappingCard({
   const isDirty = JSON.stringify(draft) !== JSON.stringify(initial);
   // Required fields depend on the target (evidence → gene_symbol; loci →
   // chromosome + position). Each must have a non-empty raw_column.
-  const missingRequired = requiredFields(draft.target).filter(
+  const missingRequired = requiredFields(draft.target, draft.centric).filter(
     (rf) =>
       !(draft.fields ?? []).some(
         (f) => f.canonical_field === rf && f.raw_column.trim() !== "",

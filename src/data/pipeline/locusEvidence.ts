@@ -101,10 +101,15 @@ export async function buildLocusEvidenceView(): Promise<void> {
       `WHERE n_candidate_genes IS NULL`,
   });
 
-  // 2. The view. Explicit column lists keep the three UNION branches aligned.
-  const evCols = EVIDENCE_COLS.map((c) => `e.${ident(c)}`).join(", ");
+  // 2. The view. Explicit column lists keep the UNION branches aligned.
   const evColsBare = EVIDENCE_COLS.map(ident).join(", ");
-
+  // var_ev: gene_symbol comes from the candidate set (the variant is fanned to
+  // every gene in its locus); the other 14 columns come from the variant row.
+  const varCols = EVIDENCE_COLS.map((c) =>
+    c === "gene_symbol" ? `c.gene_symbol AS ${ident("gene_symbol")}` : `e.${ident(c)}`,
+  ).join(", ");
+  // gene_ev: all columns from the gene-keyed evidence row.
+  const geneCols = EVIDENCE_COLS.map((c) => `e.${ident(c)}`).join(", ");
   // Stub branch: candidate gene with no evidence — gene_symbol from the
   // reference, every other evidence column NULL.
   const stubCols = EVIDENCE_COLS.map((c) =>
@@ -114,8 +119,11 @@ export async function buildLocusEvidenceView(): Promise<void> {
   const sql =
     `CREATE OR REPLACE VIEW main.locus_evidence AS ` +
     `WITH cand AS (${cand}), ` +
+    // Variant-centric evidence: matched to a locus by position, then fanned to
+    // EVERY candidate gene of that locus (a bare variant implicates the whole
+    // locus, can't name the gene). match_type='position'.
     `var_ev AS (` +
-    `  SELECT l.locus_id, ${evCols}, 'position' AS match_type ` +
+    `  SELECT c.locus_id, ${varCols}, 'position' AS match_type ` +
     `  FROM main.loci l ` +
     `  JOIN main.evidence e ` +
     `    ON e.chromosome = l.chromosome ` +
@@ -123,18 +131,18 @@ export async function buildLocusEvidenceView(): Promise<void> {
     // etc.); a bare comparison against the BIGINT locus bounds would abort.
     `    AND TRY_CAST(e.position AS BIGINT) >= l.start_position ` +
     `    AND TRY_CAST(e.position AS BIGINT) <= l.end_position ` +
-    `  WHERE e.chromosome IS NOT NULL ` +
+    `  JOIN cand c ON c.locus_id = l.locus_id ` +
+    `  WHERE e.centric = 'variant' ` +
+    `    AND e.chromosome IS NOT NULL ` +
     `    AND TRY_CAST(e.position AS BIGINT) IS NOT NULL` +
     `), ` +
-    `locus_genes AS (` +
-    `  SELECT locus_id, gene_symbol FROM cand ` +
-    `  UNION ` +
-    `  SELECT DISTINCT locus_id, gene_symbol FROM var_ev` +
-    `), ` +
+    // Gene-centric evidence: matched to a locus by gene membership in the
+    // candidate set. match_type='gene'.
     `gene_ev AS (` +
-    `  SELECT lg.locus_id, ${evCols}, 'gene' AS match_type ` +
-    `  FROM locus_genes lg ` +
-    `  JOIN main.evidence e ON e.gene_symbol = lg.gene_symbol AND e.chromosome IS NULL` +
+    `  SELECT c.locus_id, ${geneCols}, 'gene' AS match_type ` +
+    `  FROM cand c ` +
+    `  JOIN main.evidence e ON e.gene_symbol = c.gene_symbol ` +
+    `    AND (e.centric IS NULL OR e.centric <> 'variant')` +
     `), ` +
     `ev AS (` +
     `  SELECT * FROM var_ev UNION ALL SELECT * FROM gene_ev` +

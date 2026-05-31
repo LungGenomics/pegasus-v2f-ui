@@ -210,6 +210,42 @@ export async function traitEvidenceCategories(
   return rows.map((r) => r.evidence_category);
 }
 
+/** Per-locus, per-category coverage for a trait: how many distinct genes in
+ *  each locus carry evidence of each category. Returned as
+ *  locus_id → (category → n_genes). One grouped scan (no joins); the caller
+ *  divides by the locus's candidate-gene count to get a 0..1 coverage for the
+ *  per-locus heatmap strip. */
+export async function traitLocusCategoryCoverage(
+  traitId: string,
+): Promise<Map<string, Map<string, number>>> {
+  const ds = getDataSource();
+  const rows = await ds.query<{
+    locus_id: string;
+    evidence_category: string;
+    n_genes: number | string;
+  }>({
+    sql:
+      "SELECT locus_id, evidence_category, " +
+      "       COUNT(DISTINCT gene_symbol) AS n_genes " +
+      "FROM main.locus_evidence " +
+      "WHERE trait_id = ? AND match_type <> 'candidate' " +
+      "  AND gene_symbol IS NOT NULL " +
+      "  AND evidence_category IS NOT NULL AND evidence_category <> '' " +
+      "GROUP BY locus_id, evidence_category",
+    params: [traitId],
+  });
+  const out = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    let m = out.get(r.locus_id);
+    if (!m) {
+      m = new Map();
+      out.set(r.locus_id, m);
+    }
+    m.set(r.evidence_category, Number(r.n_genes));
+  }
+  return out;
+}
+
 /** Per-locus top gene WITHIN a single evidence category for a trait: the gene
  *  with the highest summed score in that category at each locus. Returns a
  *  locus_id → gene_symbol map (loci with no gene in the category are absent;

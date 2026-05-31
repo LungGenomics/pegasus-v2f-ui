@@ -26,12 +26,12 @@ export function TraitsPage() {
 
   return (
     <div
-      className={`grid gap-6 h-[calc(100vh-6.25rem)] ${
+      className={`grid gap-6 items-start ${
         showStrip ? "grid-cols-[3rem_1fr]" : "grid-cols-[minmax(220px,300px)_1fr]"
       }`}
     >
       {showStrip ? (
-        <div className="self-start max-h-full border border-base-300 rounded-lg p-1.5 flex flex-col items-center">
+        <div className="self-start max-h-[calc(100vh-6.25rem)] border border-base-300 rounded-lg p-1.5 flex flex-col items-center">
           <button
             type="button"
             onClick={() => setCollapsed(false)}
@@ -42,7 +42,7 @@ export function TraitsPage() {
           </button>
         </div>
       ) : (
-        <div className="self-start max-h-full border border-base-300 rounded-lg p-3 flex flex-col overflow-hidden">
+        <div className="self-start max-h-[calc(100vh-6.25rem)] border border-base-300 rounded-lg p-3 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between mb-3 shrink-0">
             <span className="text-xs font-semibold text-base-content/50 uppercase tracking-wide">
               {traits.length} {traits.length === 1 ? "Trait" : "Traits"}
@@ -97,8 +97,8 @@ export function TraitsPage() {
         </div>
       )}
 
-      {/* Selected trait */}
-      <div className="min-w-0 h-full min-h-0">
+      {/* Selected trait — flows in the page scroll (not its own scroller). */}
+      <div className="min-w-0">
         {selected ? (
           <TraitDetail key={selected} traitId={selected} />
         ) : (

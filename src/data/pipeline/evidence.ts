@@ -65,6 +65,9 @@ export function mappingProjections(
   const tail = [
     `${strLit(mapping.evidence_category ?? "")} AS evidence_category`,
     `${strLit(mapping.source_tag)} AS source_tag`,
+    // centric routing meta: 'variant' fans to a locus's candidate genes by
+    // position; anything else is gene-keyed. Defaults to 'gene'.
+    `${strLit(mapping.centric === "variant" ? "variant" : "gene")} AS centric`,
   ];
 
   // trait_id source:
@@ -166,6 +169,7 @@ export async function buildEvidenceView(): Promise<void> {
       ...CANONICAL_FIELDS.map((f) => `CAST(NULL AS VARCHAR) AS ${ident(f)}`),
       `CAST(NULL AS VARCHAR) AS evidence_category`,
       `CAST(NULL AS VARCHAR) AS source_tag`,
+      `CAST(NULL AS VARCHAR) AS centric`,
       `CAST(NULL AS UUID) AS trait_id`,
     ];
     await ds.exec({

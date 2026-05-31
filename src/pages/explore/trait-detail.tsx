@@ -20,9 +20,11 @@ import {
   traitSources,
   traitEvidenceCategories,
   traitLociTopGeneByCategory,
+  traitLocusCategoryCoverage,
   locusGenes,
   type LocusRow,
 } from "../../data/queries/explore";
+import { CATEGORY_HUES } from "../../components/locus-detail-pane/evidence-heatmap";
 import { fetchChromSizes } from "../../data/chromSizes";
 import { EVIDENCE_CATEGORIES } from "../../data/static";
 import { GenomeTrack, type GenomeTrackHandle } from "../../components/genome-track/genome-track";
@@ -152,6 +154,23 @@ export function TraitDetail({ traitId }: { traitId: string }) {
       !!traitId && labelMode === "top_gene_category" && !!scoreCategory,
   });
   const byCatMap = byCatQ.data ?? null;
+
+  // Per-locus category coverage strip (one grouped scan; cheap). coverageMap:
+  // locus_id → (category → n_genes). orderedCategories = stable column set.
+  const coverageQ = useQuery({
+    queryKey: ["explore", "trait-locus-coverage", traitId],
+    queryFn: () => traitLocusCategoryCoverage(traitId),
+    enabled: !!traitId,
+  });
+  const coverageMap = coverageQ.data ?? null;
+  // Full fixed category set, in canonical EVIDENCE_CATEGORIES order — every
+  // locus row shows the same boxes (empty where absent) so columns line up,
+  // matching the locus-detail heatmap. Only hidden entirely before coverage
+  // loads (so the strip doesn't flash an all-empty grid).
+  const orderedCategories = useMemo(
+    () => (coverageMap ? Object.keys(EVIDENCE_CATEGORIES) : []),
+    [coverageMap],
+  );
 
   const lociLabel = useCallback(
     (l: LocusRow): string =>
@@ -325,7 +344,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
   const trait = traitQ.data;
 
   return (
-    <div className="h-full overflow-auto">
+    <div>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold">{trait?.label ?? traitId}</h1>
@@ -453,6 +472,8 @@ export function TraitDetail({ traitId }: { traitId: string }) {
         sourceColors={multiSource ? sourceColors : undefined}
         labelMode={labelMode}
         byCatMap={byCatMap}
+        coverageMap={coverageMap}
+        orderedCategories={orderedCategories}
       />
 
       <TraitSourcesPanel traitId={traitId} />
@@ -461,6 +482,50 @@ export function TraitDetail({ traitId }: { traitId: string }) {
 }
 
 // --- Loci list + selected locus heatmap ---
+
+// Per-locus category-coverage strip: one cell per evidence category (fixed
+// column order across rows), opacity = fraction of the locus's candidate genes
+// that carry that category. A compact "what implicates this locus" indicator.
+function CoverageStrip({
+  locusId,
+  nCandidateGenes,
+  coverageMap,
+  categories,
+}: {
+  locusId: string;
+  nCandidateGenes: number;
+  coverageMap: Map<string, Map<string, number>> | null;
+  categories: string[];
+}) {
+  const byCat = coverageMap?.get(locusId);
+  const denom = nCandidateGenes > 0 ? nCandidateGenes : 1;
+  return (
+    <span className="hidden md:flex items-center gap-0.75 shrink-0">
+      {categories.map((cat) => {
+        const n = byCat?.get(cat) ?? 0;
+        const cov = Math.min(1, n / denom);
+        const has = cov > 0;
+        const hue = CATEGORY_HUES[cat] ?? "220";
+        // Match the locus-detail heatmap cells: small rounded box, filled by
+        // coverage when present; empty boxes are dashed base-300 like the
+        // heatmap's no-evidence cells.
+        return (
+          <span
+            key={cat}
+            className="w-2.75 h-2.75 rounded-[2px] shrink-0"
+            title={`${cat}: ${n}/${nCandidateGenes} genes (${Math.round(cov * 100)}%)`}
+            style={{
+              backgroundColor: has
+                ? `hsl(${hue} 70% 50% / ${Math.min(1, 0.25 + cov * 0.75)})`
+                : "transparent",
+              border: has ? "none" : "1px dashed var(--color-base-300)",
+            }}
+          />
+        );
+      })}
+    </span>
+  );
+}
 
 function LociPane({
   loci,
@@ -471,6 +536,8 @@ function LociPane({
   sourceColors,
   labelMode,
   byCatMap,
+  coverageMap,
+  orderedCategories,
 }: {
   loci: LocusRow[];
   traitId: string;
@@ -480,6 +547,8 @@ function LociPane({
   sourceColors?: Record<string, string>;
   labelMode: LabelMode;
   byCatMap: Map<string, string> | null;
+  coverageMap: Map<string, Map<string, number>> | null;
+  orderedCategories: string[];
 }) {
   const selected = selectedLocusId
     ? loci.find((l) => l.locus_id === selectedLocusId)
@@ -509,7 +578,7 @@ function LociPane({
 
   return (
     <div className="border border-base-300 rounded-lg overflow-hidden">
-      <div ref={listRef} className="overflow-y-auto max-h-[calc(100vh-22rem)]">
+      <div ref={listRef} className="overflow-y-auto max-h-[calc(100vh-19.5rem)]">
       {loci.map((l, i) => (
         <button
           key={l.locus_id}
@@ -523,13 +592,25 @@ function LociPane({
               style={{ backgroundColor: sourceColors[l.source_tag ?? ""] }}
             />
           )}
-          <span className="text-sm font-medium font-mono min-w-0 truncate">
-            {labelText(l, labelMode, byCatMap?.get(l.locus_id))}
+          {/* Label + coords absorb all variable width and truncate, so the
+              coverage strip + gene count keep a fixed column on every row. */}
+          <span className="flex items-baseline gap-2 min-w-0 flex-1">
+            <span className="text-sm font-medium font-mono min-w-0 truncate">
+              {labelText(l, labelMode, byCatMap?.get(l.locus_id))}
+            </span>
+            <span className="text-xs text-base-content/40 hidden sm:inline truncate">
+              {secondaryText(l, labelMode)}
+            </span>
           </span>
-          <span className="text-xs text-base-content/40 hidden sm:inline">
-            {secondaryText(l, labelMode)}
-          </span>
-          <span className="text-xs text-base-content/40 ml-auto tabular-nums shrink-0">
+          {orderedCategories.length > 0 && (
+            <CoverageStrip
+              locusId={l.locus_id}
+              nCandidateGenes={l.n_candidate_genes ?? 0}
+              coverageMap={coverageMap}
+              categories={orderedCategories}
+            />
+          )}
+          <span className="text-xs text-base-content/40 tabular-nums shrink-0 w-16 text-right">
             {l.n_candidate_genes ?? 0} genes
           </span>
         </button>

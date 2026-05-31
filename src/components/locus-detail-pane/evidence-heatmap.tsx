@@ -44,6 +44,9 @@ type PopoverState = {
   catLabel: string;
   x: number;
   y: number;
+  /** Pinned by a click — stays open and is interactive. A hover-opened
+   *  popover (pinned=false) is read-only and clears on mouse-leave. */
+  pinned: boolean;
 } | null;
 
 type SortKey = "#" | "gene" | string;
@@ -150,30 +153,54 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
     return arr;
   }, [genes, evidenceMap, sortKey, sortDir]);
 
-  const handleCellClick = (
+  const popoverFor = (
     e: React.MouseEvent,
     gene: string,
     cat: string,
     items: LocusGeneEvidence[],
-  ) => {
-    if (popover?.gene === gene && popover?.cat === cat) {
-      setPopover(null);
-      return;
-    }
-
+    pinned: boolean,
+  ): PopoverState => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) return null;
     const containerRect = container.getBoundingClientRect();
     const cellRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-
-    setPopover({
+    return {
       gene,
       cat,
       items,
       catLabel: categories[cat] ?? cat,
       x: cellRect.left - containerRect.left + cellRect.width / 2,
       y: cellRect.bottom - containerRect.top + 4,
-    });
+      pinned,
+    };
+  };
+
+  // Click pins the popover (interactive); clicking the same pinned cell closes it.
+  const handleCellClick = (
+    e: React.MouseEvent,
+    gene: string,
+    cat: string,
+    items: LocusGeneEvidence[],
+  ) => {
+    setPopover((prev) =>
+      prev?.pinned && prev.gene === gene && prev.cat === cat
+        ? null
+        : popoverFor(e, gene, cat, items, true),
+    );
+  };
+
+  // Hover shows a read-only popover, but never overrides a pinned one.
+  const handleCellHover = (
+    e: React.MouseEvent,
+    gene: string,
+    cat: string,
+    items: LocusGeneEvidence[],
+  ) => {
+    const next = popoverFor(e, gene, cat, items, false);
+    setPopover((prev) => (prev?.pinned ? prev : next));
+  };
+  const handleCellLeave = () => {
+    setPopover((prev) => (prev?.pinned ? prev : null));
   };
 
   const toggleGene = useCallback((gene: string) => {
@@ -248,6 +275,8 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
                 onToggle={() => toggleGene(gene.gene_symbol)}
                 onGeneClick={onGeneClick}
                 onCellClick={handleCellClick}
+                onCellHover={handleCellHover}
+                onCellLeave={handleCellLeave}
                 popover={popover}
                 totalColSpan={totalColSpan}
               />
@@ -260,7 +289,9 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
       {popover && (
         <div
           ref={popoverRef}
-          className="absolute z-20 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 w-72"
+          className={`absolute z-20 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 w-72 ${
+            popover.pinned ? "" : "pointer-events-none"
+          }`}
           style={{
             left: Math.min(popover.x - 144, (containerRef.current?.scrollWidth ?? 300) - 288),
             top: popover.y,
@@ -326,6 +357,8 @@ function GeneRow({
   onToggle,
   onGeneClick,
   onCellClick,
+  onCellHover,
+  onCellLeave,
   popover,
   totalColSpan,
 }: {
@@ -338,6 +371,8 @@ function GeneRow({
   onToggle: () => void;
   onGeneClick?: (gene: string) => void;
   onCellClick: (e: React.MouseEvent, gene: string, cat: string, items: LocusGeneEvidence[]) => void;
+  onCellHover: (e: React.MouseEvent, gene: string, cat: string, items: LocusGeneEvidence[]) => void;
+  onCellLeave: () => void;
   popover: PopoverState;
   totalColSpan: number;
 }) {
@@ -408,6 +443,10 @@ function GeneRow({
                     e.stopPropagation();
                     onCellClick(e, gene.gene_symbol, cat, items);
                   }}
+                  onMouseEnter={(e) =>
+                    onCellHover(e, gene.gene_symbol, cat, items)
+                  }
+                  onMouseLeave={onCellLeave}
                 />
               </div>
             </td>
