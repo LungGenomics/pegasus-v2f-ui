@@ -259,15 +259,14 @@ export async function removeTrait(id: string): Promise<void> {
     sql: "SELECT COUNT(*) AS n FROM config.source_traits WHERE trait_id = ?",
     params: [id],
   });
-  const [{ n: refDeriv } = { n: 0 }] = await ds.query<{ n: number }>({
-    sql:
-      "SELECT COUNT(*) AS n FROM config.derivation_traits WHERE trait_id = ?",
+  const [{ n: refMapping } = { n: 0 }] = await ds.query<{ n: number }>({
+    sql: "SELECT COUNT(*) AS n FROM config.mapping_traits WHERE trait_id = ?",
     params: [id],
   });
-  const refs = Number(refSource) + Number(refDeriv);
+  const refs = Number(refSource) + Number(refMapping);
   if (refs > 0) {
     throw new Error(
-      `Cannot remove trait — still referenced by ${refs} source/derivation association(s).`,
+      `Cannot remove trait — still referenced by ${refs} source/mapping association(s).`,
     );
   }
   await ds.exec({
@@ -279,17 +278,17 @@ export async function removeTrait(id: string): Promise<void> {
 export interface TraitUsage {
   /** Sources that declared this trait (config.source_traits). */
   sources: Array<{ name: string; display_name: string | null }>;
-  /** Derivations that carry this trait constantly
-   *  (config.derivation_traits). Per-row column-scope derivations
-   *  resolve traits by label at build time and aren't listed here. */
-  derivations: Array<{ source_tag: string; evidence_category: string }>;
+  /** Constant-scope mappings that carry this trait (config.mapping_traits).
+   *  Per-row column-scope mappings resolve traits by label at build time and
+   *  aren't listed here. */
+  mappings: Array<{ source_tag: string; evidence_category: string | null }>;
 }
 
 /** Where a trait is referenced across config — drives the "Used by"
  *  section of the trait detail panel. */
 export async function getTraitUsage(traitId: string): Promise<TraitUsage> {
   const ds = getDataSource();
-  const [sources, derivations] = await Promise.all([
+  const [sources, mappings] = await Promise.all([
     ds.query<{ name: string; display_name: string | null }>({
       sql:
         "SELECT s.name, s.display_name " +
@@ -298,16 +297,16 @@ export async function getTraitUsage(traitId: string): Promise<TraitUsage> {
         "WHERE st.trait_id = ? ORDER BY s.name",
       params: [traitId],
     }),
-    ds.query<{ source_tag: string; evidence_category: string }>({
+    ds.query<{ source_tag: string; evidence_category: string | null }>({
       sql:
-        "SELECT d.source_tag, d.evidence_category " +
-        "FROM config.derivation_traits dt " +
-        "JOIN config.derivations d ON d.id = dt.derivation_id " +
-        "WHERE dt.trait_id = ? ORDER BY d.source_tag",
+        "SELECT m.source_tag, m.evidence_category " +
+        "FROM config.mapping_traits mt " +
+        "JOIN config.mappings m ON m.id = mt.mapping_id " +
+        "WHERE mt.trait_id = ? ORDER BY m.source_tag",
       params: [traitId],
     }),
   ]);
-  return { sources, derivations };
+  return { sources, mappings };
 }
 
 /** Delete junk traits: unmapped (no ontology) AND referenced by
@@ -324,10 +323,15 @@ export async function pruneJunkTraits(): Promise<number> {
   const evidenceClause = (await tableExists("evidence"))
     ? "AND NOT EXISTS (SELECT 1 FROM main.evidence e WHERE e.trait_id = t.id) "
     : "";
+  // Orphan = unmapped (no ontology), not referenced by any source/mapping
+  // association, not a parent of another trait, and (when evidence exists) has
+  // no evidence rows. The mapping_traits check is what protects a constant-
+  // scope trait a mapping points at; the dead config.derivation_traits check
+  // from the old schema was removed.
   const where =
     "t.primary_ontology_id IS NULL " +
     "AND NOT EXISTS (SELECT 1 FROM config.source_traits st WHERE st.trait_id = t.id) " +
-    "AND NOT EXISTS (SELECT 1 FROM config.derivation_traits dt WHERE dt.trait_id = t.id) " +
+    "AND NOT EXISTS (SELECT 1 FROM config.mapping_traits mt WHERE mt.trait_id = t.id) " +
     "AND NOT EXISTS (SELECT 1 FROM config.traits c WHERE c.parent_trait_id = t.id) " +
     evidenceClause;
 

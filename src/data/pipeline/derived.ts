@@ -15,6 +15,7 @@ import { buildEvidenceView, ensureColumnScopeTraits } from "./evidence";
 import { buildLoci, type BuildLociResult } from "./loci";
 import { ensureGeneReference } from "./geneReference";
 import { buildLocusEvidenceView } from "./locusEvidence";
+import { pruneJunkTraits } from "../traitOps";
 
 export interface RebuildDerivedResult {
   loci: BuildLociResult[];
@@ -42,6 +43,12 @@ export async function rebuildDerived(
   await ensureColumnScopeTraits(actor);
   // 1. evidence view (depends only on mappings/transforms).
   await buildEvidenceView();
+  // 1b. Drop traits orphaned by the rebuild — e.g. a column-scope typo trait
+  //     whose label no longer appears in any evidence after a mapping/transform
+  //     fix. Runs after the evidence view so "no evidence" is accurate; the
+  //     prune clause spares ontology-mapped, source/mapping-referenced, and
+  //     parent traits (constant-scope traits a mapping points at are safe).
+  await pruneJunkTraits();
   // 2. gene reference — full parquet, cached (no refetch if already loaded).
   const geneReferenceRows = await ensureGeneReference();
   // 3. loci (each loci mapping's own projected variants).
