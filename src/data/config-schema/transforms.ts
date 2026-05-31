@@ -338,6 +338,7 @@ export const transformSchemas: Record<string, EntitySchema> = {
         { value: "round", label: "round" },
         { value: "floor", label: "floor" },
         { value: "ceil", label: "ceil" },
+        { value: "clip", label: "clip (clamp to min/max)" },
         { value: "add", label: "+ add" },
         { value: "subtract", label: "− subtract" },
         { value: "multiply", label: "× multiply" },
@@ -360,6 +361,18 @@ export const transformSchemas: Record<string, EntitySchema> = {
       default: 0,
       min: 0,
       showWhen: (s) => s.op === "round",
+    },
+    min: {
+      type: "string",
+      label: "Min",
+      placeholder: "e.g. 1e-300 (leave blank for none)",
+      showWhen: (s) => s.op === "clip",
+    },
+    max: {
+      type: "string",
+      label: "Max",
+      placeholder: "leave blank for none",
+      showWhen: (s) => s.op === "clip",
     },
     into: {
       type: "string",

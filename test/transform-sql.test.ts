@@ -409,6 +409,29 @@ maybe("math: -log10 into a new column", () => {
   );
 });
 
+maybe("math: -log10 of 0/negative → NULL, not an error", () => {
+  // Underflowed p-values (0) must not abort the build.
+  expectRows(
+    [{ p: "0.001" }, { p: "0" }, { p: "-1" }],
+    { type: "math", column: "p", op: "neg_log10", into: "score" } as TransformConfigEntry,
+    [
+      { p: "0.001", score: 3 },
+      { p: "0", score: null },
+      { p: "-1", score: null },
+    ],
+  );
+});
+
+maybe("math: clip clamps to [min, max]", () => {
+  // Below-min floored up, above stays — the lossless way to handle p=0 before
+  // -log10 (floor to a tiny epsilon).
+  expectRows(
+    [{ p: "0.001" }, { p: "0.2" }],
+    { type: "math", column: "p", op: "clip", min: "0.05" } as TransformConfigEntry,
+    [{ p: 0.05 }, { p: 0.2 }],
+  );
+});
+
 maybe("math: multiply by a constant in place", () => {
   expectRows(
     [{ x: "2" }, { x: "3" }],

@@ -190,6 +190,16 @@ export function DatabasePanel() {
               {dirty.hasDeletions ? " (+ deletions)" : ""}
               {dirty.globalDirty ? " (+ trait/settings edits)" : ""}.
             </span>
+          ) : info?.current_key &&
+            dirty &&
+            dirty.baseVersionKey !== info.current_key ? (
+            // Not dirty, but this local DB isn't based on the published version
+            // (e.g. a freshly-created blank DB, or a newer version was
+            // published elsewhere). Don't claim it's up to date.
+            <span className="text-warning">
+              This local database isn&rsquo;t the published version — Pull latest
+              to load it.
+            </span>
           ) : (
             <span className="text-success">Up to date with the published version.</span>
           )}

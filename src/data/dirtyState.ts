@@ -129,6 +129,11 @@ export interface DirtyState {
   globalDirty: boolean;
   anyDirty: boolean;
   total: number;
+  /** The published R2 version key this local DB was loaded/published from
+   *  (config._publish_meta.version_key). null for a freshly-created blank DB
+   *  that isn't based on any published version — so the UI can avoid claiming
+   *  "up to date with the published version" when it isn't. */
+  baseVersionKey: string | null;
 }
 
 export async function getDirtyState(): Promise<DirtyState> {
@@ -167,6 +172,17 @@ export async function getDirtyState(): Promise<DirtyState> {
     }
   }
 
+  // What published version (if any) this local DB is based on.
+  let baseVersionKey: string | null = null;
+  try {
+    const [meta] = await ds.query<{ version_key: string | null }>({
+      sql: "SELECT version_key FROM config._publish_meta WHERE id = 1",
+    });
+    baseVersionKey = meta?.version_key ?? null;
+  } catch {
+    /* _publish_meta absent → treat as no base */
+  }
+
   // Non-source config (traits + settings).
   const globalSig = await computeGlobalConfigSig();
   const globalDirty = published.get(GLOBAL_CONFIG_KEY) !== globalSig;
@@ -184,6 +200,7 @@ export async function getDirtyState(): Promise<DirtyState> {
     globalDirty,
     anyDirty: dirtySources.size > 0 || hasDeletions || globalDirty,
     total: sources.length,
+    baseVersionKey,
   };
 }
 

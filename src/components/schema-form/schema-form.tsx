@@ -2,7 +2,7 @@
 // chosen by its `type`; fields with `showWhen` are conditionally rendered.
 // Validation runs on submit and on field blur.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   EntitySchema,
   FieldSchema,
@@ -227,6 +227,133 @@ function ListOfObjectsItem({
   );
 }
 
+// Key→value mapping editor. Holds rows as local state (including blank ones)
+// and only projects to the object on change — so a freshly-added blank row
+// isn't immediately dropped by the "drop empty keys" projection. Re-syncs from
+// the prop when it changes from outside (e.g. switching transform steps).
+function MappingInput({
+  value,
+  onChange,
+  keyLabel,
+  valueLabel,
+  keyAsColumnRef,
+  valueAsColumnRef,
+  valueOptions,
+  availableColumns,
+}: {
+  value: Record<string, string> | undefined;
+  onChange: (v: Record<string, string>) => void;
+  keyLabel?: string;
+  valueLabel?: string;
+  keyAsColumnRef?: boolean;
+  valueAsColumnRef?: boolean;
+  valueOptions?: Array<{ value: string; label: string }>;
+  availableColumns: string[];
+}) {
+  const [rows, setRows] = useState<Array<{ k: string; v: string }>>(() =>
+    Object.entries(value ?? {}).map(([k, v]) => ({ k, v })),
+  );
+  const sig = JSON.stringify(value ?? {});
+  useEffect(() => {
+    setRows(Object.entries(value ?? {}).map(([k, v]) => ({ k, v })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+
+  const emit = (next: Array<{ k: string; v: string }>) => {
+    setRows(next);
+    const obj: Record<string, string> = {};
+    for (const { k, v } of next) if (k.trim()) obj[k.trim()] = v;
+    onChange(obj);
+  };
+  const setK = (i: number, val: string) =>
+    emit(rows.map((r, idx) => (idx === i ? { ...r, k: val } : r)));
+  const setV = (i: number, val: string) =>
+    emit(rows.map((r, idx) => (idx === i ? { ...r, v: val } : r)));
+  const remove = (i: number) => emit(rows.filter((_, idx) => idx !== i));
+  const add = () => emit([...rows, { k: "", v: "" }]);
+
+  const colOptions = (
+    <>
+      <option value="">— column —</option>
+      {availableColumns.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </>
+  );
+
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r, i) => (
+        <div key={i} className="flex gap-1.5 items-center">
+          {keyAsColumnRef && availableColumns.length > 0 ? (
+            <select
+              className="select select-bordered select-xs flex-1"
+              value={r.k}
+              onChange={(e) => setK(i, e.target.value)}
+            >
+              {colOptions}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="input input-bordered input-xs flex-1"
+              value={r.k}
+              placeholder={keyLabel ?? "key"}
+              onChange={(e) => setK(i, e.target.value)}
+            />
+          )}
+          <span className="text-base-content/40 text-xs">→</span>
+          {valueOptions ? (
+            <select
+              className="select select-bordered select-xs flex-1"
+              value={r.v}
+              onChange={(e) => setV(i, e.target.value)}
+            >
+              <option value="" disabled>
+                — choose —
+              </option>
+              {valueOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : valueAsColumnRef && availableColumns.length > 0 ? (
+            <select
+              className="select select-bordered select-xs flex-1"
+              value={r.v}
+              onChange={(e) => setV(i, e.target.value)}
+            >
+              {colOptions}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="input input-bordered input-xs flex-1"
+              value={r.v}
+              placeholder={valueLabel ?? "value"}
+              onChange={(e) => setV(i, e.target.value)}
+            />
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs"
+            onClick={() => remove(i)}
+            title="Remove"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <button type="button" className="btn btn-ghost btn-xs" onClick={add}>
+        + Add
+      </button>
+    </div>
+  );
+}
+
 function renderInput(
   id: string,
   field: FieldSchema,
@@ -322,128 +449,19 @@ function renderInput(
         />
       );
     }
-    case "mapping": {
-      const map = (value as Record<string, string> | undefined) ?? {};
-      const entries = Object.entries(map);
-      const update = (next: Array<[string, string]>) => {
-        const obj: Record<string, string> = {};
-        for (const [k, v] of next) {
-          if (k.trim()) obj[k.trim()] = v;
-        }
-        onChange(obj);
-      };
+    case "mapping":
       return (
-        <div className="space-y-1.5">
-          {entries.length === 0 && (
-            <div className="text-xs text-base-content/40 italic">
-              No entries — click "Add" below.
-            </div>
-          )}
-          {entries.map(([k, v], i) => (
-            <div key={i} className="flex gap-1.5 items-center">
-              {field.keyAsColumnRef && availableColumns.length > 0 ? (
-                <select
-                  className="select select-bordered select-xs flex-1"
-                  value={k}
-                  onChange={(e) => {
-                    const next = [...entries] as Array<[string, string]>;
-                    next[i] = [e.target.value, v];
-                    update(next);
-                  }}
-                >
-                  <option value="">— column —</option>
-                  {availableColumns.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  className="input input-bordered input-xs flex-1"
-                  value={k}
-                  placeholder={field.keyLabel ?? "key"}
-                  onChange={(e) => {
-                    const next = [...entries] as Array<[string, string]>;
-                    next[i] = [e.target.value, v];
-                    update(next);
-                  }}
-                />
-              )}
-              <span className="text-base-content/40 text-xs">→</span>
-              {field.valueOptions ? (
-                <select
-                  className="select select-bordered select-xs flex-1"
-                  value={v}
-                  onChange={(e) => {
-                    const next = [...entries] as Array<[string, string]>;
-                    next[i] = [k, e.target.value];
-                    update(next);
-                  }}
-                >
-                  <option value="" disabled>
-                    — choose —
-                  </option>
-                  {field.valueOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              ) : field.valueAsColumnRef && availableColumns.length > 0 ? (
-                <select
-                  className="select select-bordered select-xs flex-1"
-                  value={v}
-                  onChange={(e) => {
-                    const next = [...entries] as Array<[string, string]>;
-                    next[i] = [k, e.target.value];
-                    update(next);
-                  }}
-                >
-                  <option value="">— column —</option>
-                  {availableColumns.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  className="input input-bordered input-xs flex-1"
-                  value={v}
-                  placeholder={field.valueLabel ?? "value"}
-                  onChange={(e) => {
-                    const next = [...entries] as Array<[string, string]>;
-                    next[i] = [k, e.target.value];
-                    update(next);
-                  }}
-                />
-              )}
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs"
-                onClick={() => {
-                  const next = entries.filter((_, j) => j !== i);
-                  update(next as Array<[string, string]>);
-                }}
-                title="Remove"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs"
-            onClick={() => update([...entries, ["", ""]] as Array<[string, string]>)}
-          >
-            + Add
-          </button>
-        </div>
+        <MappingInput
+          value={value as Record<string, string> | undefined}
+          onChange={onChange}
+          keyLabel={field.keyLabel}
+          valueLabel={field.valueLabel}
+          keyAsColumnRef={field.keyAsColumnRef}
+          valueAsColumnRef={field.valueAsColumnRef}
+          valueOptions={field.valueOptions}
+          availableColumns={availableColumns}
+        />
       );
-    }
     case "column-ref": {
       // Select when columns are known; plain text otherwise.
       if (availableColumns.length === 0) {

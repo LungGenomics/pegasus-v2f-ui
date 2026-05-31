@@ -501,13 +501,17 @@ function compileExtract(t: TransformConfigEntry, input: string): string {
 // Per-row math on a numeric column. Unary (−log10, log10, ln, …) or binary
 // (+ − × ÷ ^) against a number or another column. Writes a new column when
 // `into` is set, else replaces in place.
+// Logs are only defined for x > 0 and sqrt for x >= 0. DuckDB *errors* on
+// out-of-domain input (e.g. -log10 of an underflowed p-value of 0), which would
+// abort the whole build — so guard them to yield NULL instead. To keep p=0
+// rows (rather than getting NULL), floor the value first with the `clip` op.
 const MATH_UNARY: Record<string, (c: string) => string> = {
-  neg_log10: (c) => `-log10(${c})`,
-  log10: (c) => `log10(${c})`,
-  ln: (c) => `ln(${c})`,
-  log2: (c) => `log2(${c})`,
+  neg_log10: (c) => `CASE WHEN ${c} > 0 THEN -log10(${c}) ELSE NULL END`,
+  log10: (c) => `CASE WHEN ${c} > 0 THEN log10(${c}) ELSE NULL END`,
+  ln: (c) => `CASE WHEN ${c} > 0 THEN ln(${c}) ELSE NULL END`,
+  log2: (c) => `CASE WHEN ${c} > 0 THEN log2(${c}) ELSE NULL END`,
+  sqrt: (c) => `CASE WHEN ${c} >= 0 THEN sqrt(${c}) ELSE NULL END`,
   exp: (c) => `exp(${c})`,
-  sqrt: (c) => `sqrt(${c})`,
   abs: (c) => `abs(${c})`,
   negate: (c) => `-(${c})`,
   floor: (c) => `floor(${c})`,
@@ -528,6 +532,16 @@ function compileMath(t: TransformConfigEntry, input: string): string {
   if (op === "round") {
     const d = Number(t.decimals ?? 0);
     expr = `round(${c}, ${Number.isFinite(d) ? Math.floor(d) : 0})`;
+  } else if (op === "clip") {
+    // Clamp to [min, max]; only the bounds that are set are applied. Useful to
+    // floor p-values (e.g. min 1e-300) before -log10 so 0s don't go NULL.
+    const lo = String(t.min ?? "").trim();
+    const hi = String(t.max ?? "").trim();
+    let e = c;
+    if (lo !== "" && Number.isFinite(Number(lo))) e = `GREATEST(${e}, ${Number(lo)})`;
+    if (hi !== "" && Number.isFinite(Number(hi))) e = `LEAST(${e}, ${Number(hi)})`;
+    if (e === c) return input; // no bounds given
+    expr = e;
   } else if (MATH_UNARY[op]) {
     expr = MATH_UNARY[op]!(c);
   } else if (op === "divide") {
