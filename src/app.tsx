@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
+import { RotateCw } from "lucide-react";
 import { Navbar } from "./components/layout/navbar";
 import { Footer } from "./components/layout/footer";
 import { AppRoutes } from "./routes";
@@ -12,6 +13,8 @@ import {
 } from "./data/select";
 import { hasSavedDuckDB } from "./data/opfs";
 import { captureSyncRedirect } from "./data/syncClient";
+import { isSupportedBrowser } from "./lib/browser-support";
+import { UnsupportedBrowser } from "./components/unsupported-browser";
 
 // Boot: use the cached DB if there is one; otherwise pull the shared DB from
 // R2; if there's no shared DB (or it errors), start a blank one. The app is
@@ -60,6 +63,9 @@ async function bootDbOnce(): Promise<string | null> {
   }
 }
 
+// Detected once at module load — the browser can't change within a session.
+const SUPPORTED = isSupportedBrowser();
+
 export function App() {
   const [booted, setBooted] = useState(false);
   const [attached, setAttached] = useState(isAttached());
@@ -67,6 +73,9 @@ export function App() {
   const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Unsupported browsers render the block screen and never boot the DB —
+    // attaching DuckDB-WASM would just fail.
+    if (!SUPPORTED) return;
     // Consume the post-OAuth #sync_token/#sync_error fragment before
     // anything else (it scrubs the hash so creds don't linger).
     const { error } = captureSyncRedirect();
@@ -94,6 +103,10 @@ export function App() {
   // own centered layout, so it gets no padding.
   const isLanding = location.pathname === "/";
 
+  if (!SUPPORTED) {
+    return <UnsupportedBrowser />;
+  }
+
   if (!booted) {
     return (
       <div className="min-h-screen bg-base-100 flex items-center justify-center">
@@ -104,15 +117,24 @@ export function App() {
 
   if (!attached) {
     return (
-      <div className="min-h-screen bg-base-100 flex items-center justify-center px-6">
-        <div className="text-sm text-error max-w-lg text-center">
-          Could not initialize a database. Reload to retry.
-          {bootError && (
-            <p className="mt-2 font-mono text-xs break-words opacity-80">
+      <div className="flex flex-col items-center justify-center min-h-dvh gap-4 px-4 pb-16">
+        <h1 className="text-xl font-light text-base-content">
+          Could not initialize the database.
+        </h1>
+        {bootError && (
+          <div className="bg-base-200/50 border border-base-300 rounded-lg px-4 py-3 max-w-lg w-full">
+            <p className="text-xs font-mono text-base-content/50 break-words">
               {bootError}
             </p>
-          )}
-        </div>
+          </div>
+        )}
+        <button
+          onClick={() => window.location.reload()}
+          className="btn btn-sm btn-primary gap-1.5 rounded-full"
+        >
+          <RotateCw size={14} />
+          Reload
+        </button>
       </div>
     );
   }

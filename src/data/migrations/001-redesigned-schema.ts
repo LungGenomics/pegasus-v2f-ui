@@ -143,6 +143,11 @@ const STATEMENTS: string[] = [
      display_name        VARCHAR,
      target              VARCHAR NOT NULL,
      evidence_category   VARCHAR,
+     -- Source column whose (already-prepared) value IS each evidence row's
+     -- score for this category — a plain column alias, NO calculation here.
+     -- Any derivation (e.g. -log10(p)) belongs in the transform pipeline.
+     -- Required for target='evidence'; NULL for target='loci'.
+     score_column        VARCHAR,
      centric             VARCHAR,
      trait_scope         VARCHAR,
      source_tag          VARCHAR NOT NULL UNIQUE,
@@ -204,6 +209,9 @@ const STATEMENTS: string[] = [
      gene_reference_url       VARCHAR,
      candidate_gene_biotypes  VARCHAR DEFAULT 'protein_coding,lncRNA',
      row_version              INTEGER NOT NULL DEFAULT 1,
+     -- Who last changed settings (NULL on the seeded row) — drives the
+     -- Activity feed entry, same as the entity tables' last_edited_by.
+     last_edited_by           VARCHAR,
      updated_at               TIMESTAMP NOT NULL DEFAULT now()
    )`,
 
@@ -218,6 +226,11 @@ const STATEMENTS: string[] = [
 
   `INSERT INTO config.config_meta (id, schema_version) VALUES (1, 1)
      ON CONFLICT DO NOTHING`,
+
+  // (No event-log table. Provenance is derived from the created_by /
+  //  last_edited_by / *_at columns on the config entities — see the Activity
+  //  feed in queries/activity.ts. The former config.audit_log table was never
+  //  wired and has been removed.)
 
   // -- publish tracker (local dirty-state for the explicit-Publish model,
   // plan 2026-05-19). config.sources.raw_version (above) bumps on each
@@ -234,23 +247,6 @@ const STATEMENTS: string[] = [
      version_key  VARCHAR,
      published_at TIMESTAMP
    )`,
-
-  // -- audit_log ------------------------------------------------------
-  // Generic outbox for any config table change. Kept from the prior
-  // schema — the *Ops functions will write here on every mutation.
-  `CREATE TABLE IF NOT EXISTS config.audit_log (
-     id          UUID PRIMARY KEY DEFAULT uuid(),
-     ts          TIMESTAMP NOT NULL DEFAULT now(),
-     actor_id    UUID,
-     entity_type VARCHAR NOT NULL,
-     entity_id   UUID NOT NULL,
-     op          VARCHAR NOT NULL,
-     before_json JSON,
-     after_json  JSON
-   )`,
-
-  `CREATE INDEX IF NOT EXISTS idx_audit_log_entity
-     ON config.audit_log(entity_type, entity_id, ts)`,
 ];
 
 const apply = async (ds: DataSource): Promise<void> => {

@@ -106,6 +106,8 @@ export async function fetchDiseaseEnrichment(
         Accept: "application/json",
       },
       body: JSON.stringify({ query: QUERY, variables: { efoId } }),
+      // Bound the request — a hung OT API would otherwise stall enrichment.
+      signal: AbortSignal.timeout(10000),
     });
   } catch {
     return null;

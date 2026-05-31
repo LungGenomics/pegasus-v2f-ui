@@ -55,7 +55,9 @@ export async function setTraitMapping(
   });
   // Repopulate description/synonyms/hierarchy/xrefs/kind (+OT) from the term.
   // Errors are swallowed inside enrichTrait — the mapping is already saved.
-  await enrichTrait(traitId);
+  // Each upstream fetch is time-bounded (see ontology clients) so a slow/dead
+  // service (e.g. the deprecated OxO) can't stall this for minutes.
+  await enrichTrait(traitId, actor);
 }
 
 /** Clear a trait's ontology mapping → back to a bare, unmapped label.
@@ -109,7 +111,7 @@ export async function setTraitKind(
   });
   const trait = await getTrait(traitId);
   if (trait?.primary_ontology_id) {
-    await enrichTrait(traitId); // re-infers kind (override now off)
+    await enrichTrait(traitId, actor); // re-infers kind (override now off)
   } else {
     await ds.exec({
       sql: "UPDATE config.traits SET trait_kind = NULL WHERE id = ?",

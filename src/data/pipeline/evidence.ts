@@ -35,6 +35,14 @@ function fieldExpr(mapping: ConfigMapping, field: string): string {
   return f ? `${ident(f.raw_column)} AS ${ident(field)}` : `NULL AS ${ident(field)}`;
 }
 
+// `score` aliases the mapping's chosen score_column (a plain column — NO
+// calculation; any derivation lives in the source's transform pipeline).
+// Required for evidence mappings; NULL when unset / for loci mappings.
+function scoreExpr(mapping: ConfigMapping): string {
+  const col = mapping.score_column?.trim();
+  return col ? `${ident(col)} AS ${ident("score")}` : `NULL AS ${ident("score")}`;
+}
+
 // trait_id projection for a single trait literal (or a column/NULL). Returns
 // the SQL expression that yields the row's trait_id.
 function traitIdExpr(traitId: string | null): string {
@@ -51,7 +59,9 @@ export function mappingProjections(
   mapping: ConfigMapping,
   pipeline: string,
 ): string[] {
-  const cols = CANONICAL_FIELDS.map((f) => fieldExpr(mapping, f));
+  const cols = CANONICAL_FIELDS.map((f) =>
+    f === "score" ? scoreExpr(mapping) : fieldExpr(mapping, f),
+  );
   const tail = [
     `${strLit(mapping.evidence_category ?? "")} AS evidence_category`,
     `${strLit(mapping.source_tag)} AS source_tag`,

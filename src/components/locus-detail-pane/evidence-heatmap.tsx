@@ -93,6 +93,29 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
     [evidenceMap],
   );
 
+  // Score-sum tiebreaker for the "#" rank — sum of the gene's scores across all
+  // its evidence. Keeps the heatmap rank in step with the Traits-page global
+  // rank (distinct categories, then summed score). See
+  // plans/2026-05-30-top-gene-rank-and-by-category.md.
+  const scoreSum = useCallback(
+    (gene: LocusGene) => {
+      const cats = evidenceMap.get(gene.gene_symbol);
+      if (!cats) return 0;
+      let sum = 0;
+      for (const evs of cats.values()) {
+        for (const e of evs) {
+          const v =
+            typeof e.score === "number"
+              ? e.score
+              : parseFloat(String(e.score ?? ""));
+          if (Number.isFinite(v)) sum += v;
+        }
+      }
+      return sum;
+    },
+    [evidenceMap],
+  );
+
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -110,7 +133,9 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
 
     arr.sort((a, b) => {
       if (sortKey === "#") {
-        return (catCount(a) - catCount(b)) * dir;
+        const c = catCount(a) - catCount(b);
+        if (c !== 0) return c * dir;
+        return (scoreSum(a) - scoreSum(b)) * dir;
       }
       if (sortKey === "gene") {
         return a.gene_symbol.localeCompare(b.gene_symbol) * dir;

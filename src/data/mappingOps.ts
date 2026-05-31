@@ -24,6 +24,7 @@ type MappingRow = {
   display_name: string | null;
   target: string;
   evidence_category: string | null;
+  score_column: string | null;
   centric: string | null;
   trait_scope: string | null;
   window_kb: number | null;
@@ -61,6 +62,7 @@ function rowToMapping(
   if (row.display_name != null) out.display_name = row.display_name;
   if (row.evidence_category != null)
     out.evidence_category = row.evidence_category;
+  if (row.score_column != null) out.score_column = row.score_column;
   if (row.centric != null) out.centric = row.centric as MappingCentric;
   if (row.trait_scope != null)
     out.trait_scope = row.trait_scope as MappingTraitScope;
@@ -121,7 +123,7 @@ async function fetchMappingChildren(mappingId: string): Promise<{
 
 const SELECT_COLS =
   "id, source_id, source_tag, display_name, target, evidence_category, " +
-  "centric, trait_scope, window_kb, merge_distance_kb, row_version, " +
+  "score_column, centric, trait_scope, window_kb, merge_distance_kb, row_version, " +
   "created_by, last_edited_by, created_at, updated_at";
 
 // --- READS ---
@@ -181,6 +183,7 @@ export interface InsertMappingInput {
   display_name?: string;
   target: MappingTarget;
   evidence_category?: string;
+  score_column?: string;
   centric?: MappingCentric;
   trait_scope?: MappingTraitScope;
   window_kb?: number;
@@ -201,15 +204,16 @@ export async function insertMapping(
     sql:
       "INSERT INTO config.mappings " +
       "  (source_id, source_tag, display_name, target, evidence_category, " +
-      "   centric, trait_scope, window_kb, merge_distance_kb, " +
+      "   score_column, centric, trait_scope, window_kb, merge_distance_kb, " +
       "   created_by, last_edited_by) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     params: [
       input.source_id,
       input.source_tag,
       input.display_name ?? null,
       input.target,
       input.evidence_category ?? null,
+      input.score_column ?? null,
       input.centric ?? null,
       input.trait_scope ?? null,
       input.window_kb ?? null,
@@ -239,6 +243,7 @@ export type UpdateMappingPatch = Partial<
     | "display_name"
     | "target"
     | "evidence_category"
+    | "score_column"
     | "centric"
     | "trait_scope"
     | "window_kb"
@@ -285,6 +290,7 @@ export async function updateMapping(
   if ("target" in patch) addSet("target", patch.target);
   if ("evidence_category" in patch)
     addSet("evidence_category", patch.evidence_category ?? null);
+  if ("score_column" in patch) addSet("score_column", patch.score_column ?? null);
   if ("centric" in patch) addSet("centric", patch.centric ?? null);
   if ("trait_scope" in patch) addSet("trait_scope", patch.trait_scope ?? null);
   if ("window_kb" in patch) addSet("window_kb", patch.window_kb ?? null);

@@ -6,9 +6,11 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getPegasusSettings, updatePegasusSettings } from "../../data/settingsOps";
+import { useSyncSession } from "../../hooks/useSyncSession";
 
 export function SettingsPanel() {
   const qc = useQueryClient();
+  const session = useSyncSession();
   const settingsQ = useQuery({
     queryKey: ["pegasus-settings"],
     queryFn: getPegasusSettings,
@@ -34,7 +36,10 @@ export function SettingsPanel() {
 
   const save = async () => {
     if (!valid) return;
-    await updatePegasusSettings({ window_kb: wNum, merge_distance_kb: mNum });
+    await updatePegasusSettings(
+      { window_kb: wNum, merge_distance_kb: mNum },
+      session?.login ?? null,
+    );
     void qc.invalidateQueries({ queryKey: ["pegasus-settings"] });
     void qc.invalidateQueries({ queryKey: ["config"] });
     setSaved(true);

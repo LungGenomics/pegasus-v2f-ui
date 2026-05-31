@@ -17,6 +17,7 @@ import { X, Search, Loader2 } from "lucide-react";
 import { listTraits, upsertTrait } from "../../data/traitOps";
 import { search as olsSearch, type OlsSearchResult } from "../../data/ontology/ols";
 import { enrichTrait } from "../../data/ontology/enrich";
+import { useSyncSession } from "../../hooks/useSyncSession";
 import type { ConfigTrait } from "../../api/types";
 
 export interface TraitInputProps {
@@ -40,6 +41,8 @@ export function TraitInput({
   ontologies,
 }: TraitInputProps) {
   const qc = useQueryClient();
+  const session = useSyncSession();
+  const actor = session?.login ?? null;
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
@@ -162,12 +165,12 @@ export function TraitInput({
         ontology_label: r.label,
         description: r.description,
         synonyms: r.synonyms,
-      });
+      }, actor);
       await qc.invalidateQueries({ queryKey: ["traits"] });
       pick(traitId);
       // Fire-and-forget Stage 1 + 2 enrichment. Errors are swallowed
       // inside enrichTrait — the trait is already usable without it.
-      void enrichTrait(traitId).then(() =>
+      void enrichTrait(traitId, actor).then(() =>
         qc.invalidateQueries({ queryKey: ["traits"] }),
       );
     } catch (err) {

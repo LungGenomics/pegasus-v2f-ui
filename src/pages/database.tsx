@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DatabasePanel } from "../components/database/sync-panel";
-import { AuditPanel } from "../components/database/audit-panel";
+import { ActivityPanel } from "../components/database/activity-panel";
 import { TableBrowser } from "../components/database/table-browser";
 import { SqlConsole } from "../components/database/sql-console";
 import { SettingsPanel } from "../components/database/settings-panel";
@@ -106,7 +106,7 @@ export function DatabasePage() {
       <div className={`min-w-0 h-full min-h-0 ${fill ? "" : "overflow-auto"}`}>
         {active === "sync" && <DatabasePanel />}
         {active === "gene" && <DerivedDataSection />}
-        {active === "activity" && <AuditPanel />}
+        {active === "activity" && <ActivityPanel />}
         {active === "settings" && <SettingsPanel />}
         {active === "tables" && (
           <div className="h-full">
@@ -188,11 +188,14 @@ function DerivedDataSection() {
     setResult(null);
     try {
       const value = selection.size === 0 ? "" : Array.from(selection).join(",");
-      await updatePegasusSettings({ candidate_gene_biotypes: value });
+      await updatePegasusSettings(
+        { candidate_gene_biotypes: value },
+        session?.login ?? null,
+      );
       void qc.invalidateQueries({ queryKey: ["pegasus-settings"] });
       const r = await rebuildDerived(session?.login ?? null);
       setResult(r);
-      void qc.invalidateQueries({ queryKey: ["audit-recent"] });
+      void qc.invalidateQueries({ queryKey: ["activity-recent"] });
       void qc.invalidateQueries({ queryKey: ["gene-biotypes"] });
       void qc.invalidateQueries({ queryKey: ["explore"] });
       void qc.invalidateQueries({ queryKey: ["landing-stats"] });

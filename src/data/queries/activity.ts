@@ -1,15 +1,16 @@
-// Provenance / audit feed built from the created_by / last_edited_by /
-// created_at / updated_at columns on the editable config entities (sources,
-// mappings, traits). Not an event log (config.audit_log is unwired) — a
-// derived "recent changes" list: one row per create, plus one per edit when
-// the entity has been edited since creation. Rendered commit-history style.
+// Activity feed: a derived "recent changes" list built from the created_by /
+// last_edited_by / created_at / updated_at columns on the editable config
+// entities (sources, mappings, traits) + the pegasus_settings singleton. One
+// row per create, plus one per edit when the entity has been edited since
+// creation. Rendered commit-history style. There is no separate event-log
+// table — this is the single source of provenance.
 
 import { getDataSource } from "../select";
 
 export interface ChangeEntry {
   ts: string;
   actor: string | null;
-  entity_type: "source" | "mapping" | "trait";
+  entity_type: "source" | "mapping" | "trait" | "settings";
   label: string;
   op: "created" | "edited";
 }
@@ -39,6 +40,12 @@ export async function recentChanges(limit = 100): Promise<ChangeEntry[]> {
       UNION ALL
       SELECT updated_at, last_edited_by, 'trait', label, 'edited'
       FROM config.traits WHERE updated_at > created_at
+
+      UNION ALL
+      -- Settings is a singleton: only an "edited" event, recorded once it's
+      -- been changed (last_edited_by set; NULL on the seeded row).
+      SELECT updated_at, last_edited_by, 'settings', 'Pegasus settings', 'edited'
+      FROM config.pegasus_settings WHERE last_edited_by IS NOT NULL
     )
     SELECT ts, actor, entity_type, label, op
     FROM events WHERE ts IS NOT NULL

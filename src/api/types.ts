@@ -360,6 +360,9 @@ export interface ConfigMapping {
   target: MappingTarget;
   /** Set when target='evidence'. */
   evidence_category?: string;
+  /** Source column whose value is each evidence row's score (plain alias, no
+   *  calculation). Required for target='evidence'. */
+  score_column?: string;
   centric?: MappingCentric;
   trait_scope?: MappingTraitScope;
   /** Set when target='loci' (per-mapping loci resolution). */

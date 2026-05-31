@@ -43,6 +43,7 @@ export type PegasusSettingsPatch = Partial<
 
 export async function updatePegasusSettings(
   patch: PegasusSettingsPatch,
+  actor: string | null = null,
 ): Promise<void> {
   const ds = getDataSource();
   const sets: string[] = [];
@@ -59,6 +60,8 @@ export async function updatePegasusSettings(
   if ("candidate_gene_biotypes" in patch)
     add("candidate_gene_biotypes", patch.candidate_gene_biotypes || null);
   if (sets.length === 0) return;
+  // Stamp who changed settings (surfaces in the Activity feed) + bump version.
+  add("last_edited_by", actor);
   sets.push("row_version = row_version + 1");
   sets.push("updated_at = now()");
   await ds.exec({

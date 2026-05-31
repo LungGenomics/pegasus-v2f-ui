@@ -32,7 +32,10 @@ export interface EnrichResult {
  *  also runs Stage 2 (OT GraphQL). Writes results back via
  *  upsertTrait. Idempotent — re-running pulls fresh data from each
  *  source. */
-export async function enrichTrait(traitId: string): Promise<EnrichResult> {
+export async function enrichTrait(
+  traitId: string,
+  actor: string | null = null,
+): Promise<EnrichResult> {
   const trait = await getTrait(traitId);
   if (!trait) throw new Error(`Trait ${traitId} not found`);
 
@@ -50,7 +53,7 @@ export async function enrichTrait(traitId: string): Promise<EnrichResult> {
     result.stage2_skipped = true;
     return result;
   }
-  const stage1 = await runStage1(trait);
+  const stage1 = await runStage1(trait, actor);
   if (stage1) {
     result.stage1_ok = true;
     result.trait_kind = stage1.trait_kind;
@@ -64,7 +67,7 @@ export async function enrichTrait(traitId: string): Promise<EnrichResult> {
     result.stage2_skipped = true;
     return result;
   }
-  const stage2 = await runStage2(trait);
+  const stage2 = await runStage2(trait, actor);
   if (stage2) result.stage2_ok = true;
 
   return result;
@@ -74,7 +77,10 @@ interface Stage1Result {
   trait_kind?: ConfigTrait["trait_kind"];
 }
 
-async function runStage1(trait: ConfigTrait): Promise<Stage1Result | null> {
+async function runStage1(
+  trait: ConfigTrait,
+  actor: string | null,
+): Promise<Stage1Result | null> {
   const ontology = trait.primary_ontology?.toLowerCase();
   const ontId = trait.primary_ontology_id;
   if (!ontology || !ontId) return null;
@@ -102,12 +108,15 @@ async function runStage1(trait: ConfigTrait): Promise<Stage1Result | null> {
     // Preserve fields we don't touch
     primary_ontology: trait.primary_ontology,
     primary_ontology_id: trait.primary_ontology_id,
-  });
+  }, actor);
 
   return { trait_kind };
 }
 
-async function runStage2(trait: ConfigTrait): Promise<boolean> {
+async function runStage2(
+  trait: ConfigTrait,
+  actor: string | null,
+): Promise<boolean> {
   const ontId = trait.primary_ontology_id;
   if (!ontId) return false;
   const enrichment = await fetchDiseaseEnrichment(ontId);
@@ -122,7 +131,7 @@ async function runStage2(trait: ConfigTrait): Promise<boolean> {
     primary_ontology: trait.primary_ontology,
     primary_ontology_id: trait.primary_ontology_id,
     trait_kind: trait.trait_kind ?? "disease",
-  });
+  }, actor);
   return true;
 }
 
@@ -132,6 +141,7 @@ async function runStage2(trait: ConfigTrait): Promise<boolean> {
 export async function enrichTraits(
   traitIds: string[],
   options: { staleAfterDays?: number; force?: boolean } = {},
+  actor: string | null = null,
 ): Promise<EnrichResult[]> {
   const staleMs = (options.staleAfterDays ?? 30) * 24 * 3600 * 1000;
   const cutoff = Date.now() - staleMs;
@@ -155,7 +165,7 @@ export async function enrichTraits(
         continue;
       }
     }
-    out.push(await enrichTrait(id));
+    out.push(await enrichTrait(id, actor));
     // Throttle: ~1 trait per second when Stage 2 runs.
     await new Promise((r) => setTimeout(r, 1000));
   }
@@ -185,6 +195,7 @@ const normLabel = (s: string): string =>
  *  enrichTraits afterward on the newly-resolved ids. */
 export async function resolveUnmappedTraits(
   traitIds: string[],
+  actor: string | null = null,
 ): Promise<ResolveResult[]> {
   const out: ResolveResult[] = [];
   for (const id of traitIds) {
@@ -216,7 +227,7 @@ export async function resolveUnmappedTraits(
       primary_ontology: hit.ontology,
       primary_ontology_id: hit.obo_id,
       ontology_label: hit.label,
-    });
+    }, actor);
     out.push({
       trait_id: id,
       label: trait.label,

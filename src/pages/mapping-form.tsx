@@ -115,8 +115,11 @@ function FieldsEditor({
   // Canonical fields not yet used — the next-add picker defaults to the
   // first unused one so users don't repeatedly add the same row.
   const used = new Set(value.map((f) => f.canonical_field));
+  // `score` is no longer a column alias — it's set via the per-mapping score
+  // expression (Option B). Exclude it from the add picker.
   const firstUnused =
-    CANONICAL_FIELDS.find((c) => !used.has(c)) ?? CANONICAL_FIELDS[0]!;
+    CANONICAL_FIELDS.find((c) => c !== "score" && !used.has(c)) ??
+    CANONICAL_FIELDS.find((c) => c !== "score")!;
 
   const update = (i: number, patch: Partial<MappingField>) =>
     onChange(value.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
@@ -138,7 +141,11 @@ function FieldsEditor({
               className="select select-bordered select-sm font-mono w-[40%] disabled:opacity-100"
               title={req ? "Required for this target" : undefined}
             >
-              {CANONICAL_FIELDS.map((c) => (
+              {CANONICAL_FIELDS.filter(
+                // Hide `score` (set via the score expression), unless this row
+                // is already a legacy score alias so its value still renders.
+                (c) => c !== "score" || c === f.canonical_field,
+              ).map((c) => (
                 <option key={c} value={c}>
                   {c}
                   {isRequired(c) ? " *" : ""}
@@ -377,6 +384,7 @@ export function MappingCardForm({
       onChange({
         target: t,
         evidence_category: undefined,
+        score_column: undefined,
         centric: undefined,
         trait_scope: undefined,
         trait_ids: undefined,
@@ -470,6 +478,27 @@ export function MappingCardForm({
               ))}
             </select>
           </label>
+
+          <div>
+            <FieldLabel>
+              Score column <span className="text-error">*</span>
+            </FieldLabel>
+            <ColumnCombobox
+              value={draft.score_column ?? ""}
+              onChange={(v) => onChange({ score_column: v || undefined })}
+              columns={transformedColumns}
+              placeholder="column holding the score"
+              invalid={isUnknownColumn(
+                draft.score_column ?? "",
+                transformedColumns,
+              )}
+            />
+            <p className="text-xs text-base-content/40 mt-1">
+              The source column whose value is this evidence&rsquo;s score. Need
+              it derived (e.g. &minus;log10 of a p-value)? Do that in Transforms,
+              then map the result here.
+            </p>
+          </div>
 
           <div>
             <FieldLabel>Centric</FieldLabel>

@@ -46,8 +46,15 @@ const ancestorCache = new Map<string, TraitHierarchyNode[]>();
 
 // --- Helpers --------------------------------------------------------
 
+// Bound every OLS request so a slow/hung upstream can't stall the UI; callers
+// degrade gracefully on any error (including a timeout abort).
+const OLS_TIMEOUT_MS = 8000;
+
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(OLS_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(
       `OLS request failed (${res.status} ${res.statusText}): ${url}`,

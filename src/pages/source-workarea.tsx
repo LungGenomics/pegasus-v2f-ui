@@ -5,7 +5,11 @@
 // tracks changes). The Transforms/Mappings editors and the Raw/Transformed
 // toggle land in the next slices.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  transformTypeMeta,
+  TRANSFORM_CATEGORY_ORDER,
+} from "../data/config-schema/transforms";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Trash2,
@@ -53,7 +57,12 @@ import type {
   ConfigSourceTransform,
   ConfigTrait,
 } from "../api/types";
-import { TransformParamsEditor, isTransformIncomplete } from "./transform-form";
+import {
+  TransformParamEditor,
+  isTransformIncomplete,
+} from "../components/schema-form/transform-param-editor";
+import { SchemaFormProvider } from "../components/schema-form/context";
+import type { TransformConfigEntry } from "../api/types";
 import { MappingCardForm } from "./mapping-form";
 import { useSyncSession } from "../hooks/useSyncSession";
 
@@ -708,25 +717,31 @@ function DetailsTab({
 
 // --- Transforms tab ---
 
-/** Supported transform DSL types (transform/compile.ts). The two legacy
- *  "custom" types (parse_evidence, apply_f_trait) are intentionally omitted
- *  from the picker — they're not part of the redesigned authoring model. */
+/** Picker allow-list of transform DSL types (transform/compile.ts). The legacy
+ *  `custom` types (parse_evidence, apply_f_trait) are intentionally omitted —
+ *  kept as reference code only. Order here doesn't matter; the picker groups by
+ *  category from transformTypeMeta. */
 const TRANSFORM_TYPES = [
   "rename",
   "select",
-  "deduplicate",
-  "strip_prefix",
-  "add_prefix",
-  "uppercase",
-  "drop_nulls",
-  "coerce_numeric",
-  "filter_values",
-  "parse_variant_id",
+  "concat_columns",
+  "format_text",
+  "affix",
+  "find_replace",
+  "extract",
   "split_column",
+  "coerce_numeric",
+  "normalize_nulls",
+  "replace_values",
+  "drop_nulls",
+  "filter",
+  "math",
+  "deduplicate",
   "explode_column",
   "aggregate",
-  "compute",
+  "parse_variant_id",
   "map_gene_id",
+  "compute",
 ] as const;
 
 type DraftStep = { type: string; params: Record<string, unknown> };
@@ -859,6 +874,14 @@ function TransformsTab({
       )}
     </div>
   );
+}
+
+/** Drop the `type` discriminant from the schema editor's output, leaving just
+ *  the params we persist. */
+function stripType(t: TransformConfigEntry): Record<string, unknown> {
+  const rest: Record<string, unknown> = { ...t };
+  delete rest.type;
+  return rest;
 }
 
 function TransformStepCard({
@@ -996,12 +1019,14 @@ function TransformStepCard({
             {err && <p className="text-xs text-error">{err}</p>}
           </>
         ) : (
-          <TransformParamsEditor
-            type={transform.type}
-            params={transform.params}
-            columns={rawColumns}
-            onChange={onParamsChange}
-          />
+          <SchemaFormProvider columns={rawColumns}>
+            <TransformParamEditor
+              transform={
+                { type: transform.type, ...transform.params } as TransformConfigEntry
+              }
+              onChange={(next) => onParamsChange(stripType(next))}
+            />
+          </SchemaFormProvider>
         )}
       </div>
     </div>
@@ -1235,12 +1260,19 @@ function MappingCard({
   );
   const hasAllRequired = missingRequired.length === 0;
   const hasSourceTag = draft.source_tag.trim() !== "";
-  // Evidence-target mappings must carry a PEGASUS evidence category.
+  // Evidence-target mappings must carry a PEGASUS evidence category and a
+  // score column (the per-row score value for that category).
   const needsCategory = draft.target === "evidence";
   const hasCategory =
     !needsCategory || (draft.evidence_category ?? "").trim() !== "";
+  const hasScore =
+    draft.target !== "evidence" || (draft.score_column ?? "").trim() !== "";
   const canSave =
-    hasSourceTag && hasAllRequired && hasCategory && (isNew || isDirty);
+    hasSourceTag &&
+    hasAllRequired &&
+    hasCategory &&
+    hasScore &&
+    (isNew || isDirty);
 
   const onChange = (patch: Partial<ConfigMapping>) =>
     setDraft((d) => ({ ...d, ...patch }));
@@ -1255,6 +1287,7 @@ function MappingCard({
       if (draft.display_name) input.display_name = draft.display_name;
       if (draft.evidence_category)
         input.evidence_category = draft.evidence_category;
+      if (draft.score_column) input.score_column = draft.score_column;
       if (draft.centric) input.centric = draft.centric;
       if (draft.trait_scope) input.trait_scope = draft.trait_scope;
       if (draft.window_kb !== undefined) input.window_kb = draft.window_kb;
@@ -1272,6 +1305,7 @@ function MappingCard({
         display_name: draft.display_name,
         target: draft.target,
         evidence_category: draft.evidence_category,
+        score_column: draft.score_column,
         centric: draft.centric,
         trait_scope: draft.trait_scope,
         window_kb: draft.window_kb,
@@ -1314,7 +1348,9 @@ function MappingCard({
       ? `Map a column for: ${missingRequired.join(", ")}`
       : !hasCategory
         ? "Evidence category is required"
-        : undefined;
+        : !hasScore
+          ? "Score column is required for evidence mappings"
+          : undefined;
 
   return (
     <div className="border border-base-300 bg-base-200/60 rounded-lg p-3 space-y-3">
@@ -1370,6 +1406,61 @@ function AddStepPicker({
   onPick: (type: string) => void;
   onCancel: () => void;
 }) {
+  const [query, setQuery] = useState("");
+  // Index into the flattened, in-display-order list for keyboard navigation.
+  const [active, setActive] = useState(0);
+
+  // Picker-allowed transforms (TRANSFORM_TYPES excludes legacy `custom`),
+  // resolved to their display metadata.
+  const allowed = useMemo(() => {
+    const ok = new Set<string>(TRANSFORM_TYPES);
+    return transformTypeMeta.filter((m) => ok.has(m.value));
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      q
+        ? allowed.filter(
+            (m) =>
+              m.label.toLowerCase().includes(q) ||
+              m.value.toLowerCase().includes(q) ||
+              m.description.toLowerCase().includes(q) ||
+              m.category.toLowerCase().includes(q),
+          )
+        : allowed,
+    [allowed, q],
+  );
+
+  // Group in canonical category order; skip empty categories.
+  const groups = useMemo(
+    () =>
+      TRANSFORM_CATEGORY_ORDER.map((cat) => ({
+        cat,
+        items: filtered.filter((m) => m.category === cat),
+      })).filter((g) => g.items.length > 0),
+    [filtered],
+  );
+  // Flat list matching the rendered order — drives the highlighted index.
+  const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActive((a) => Math.min(a + 1, flat.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((a) => Math.max(a - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const m = flat[active];
+      if (m) onPick(m.value);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      onCancel();
+    }
+  };
+
   return (
     <div className="border border-base-300 rounded-lg p-3">
       <div className="flex items-center justify-between mb-2">
@@ -1384,17 +1475,54 @@ function AddStepPicker({
           <X className="size-3.5" />
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-1">
-        {TRANSFORM_TYPES.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => onPick(t)}
-            className="px-2 py-1 text-xs text-left rounded font-mono text-base-content/70 hover:bg-base-200 hover:text-base-content cursor-pointer"
-          >
-            {t}
-          </button>
-        ))}
+      <input
+        autoFocus
+        type="text"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setActive(0);
+        }}
+        onKeyDown={onKeyDown}
+        placeholder="Search transforms…"
+        className="input input-bordered input-xs w-full mb-2"
+      />
+      <div className="max-h-72 overflow-y-auto">
+        {flat.length === 0 ? (
+          <p className="text-xs text-base-content/40 py-3 text-center">
+            No transforms match “{query}”.
+          </p>
+        ) : (
+          groups.map((g) => (
+            <div key={g.cat} className="mb-1.5 last:mb-0">
+              <div className="text-[10px] uppercase tracking-wide text-base-content/40 px-1 pt-1 pb-0.5">
+                {g.cat}
+              </div>
+              {g.items.map((m) => {
+                const idx = flat.indexOf(m);
+                const isActive = idx === active;
+                return (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => onPick(m.value)}
+                    onMouseMove={() => setActive(idx)}
+                    className={`w-full text-left rounded px-2 py-1 flex flex-col gap-0.5 cursor-pointer ${
+                      isActive ? "bg-base-200" : "hover:bg-base-200/60"
+                    }`}
+                  >
+                    <span className="text-xs font-medium text-base-content/80">
+                      {m.label}
+                    </span>
+                    <span className="text-[11px] leading-tight text-base-content/40">
+                      {m.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

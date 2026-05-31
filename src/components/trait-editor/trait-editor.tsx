@@ -239,7 +239,7 @@ export function TraitEditor({
               <div className="text-xs font-medium text-base-content/50">Enrichment</div>
               <button
                 type="button"
-                onClick={() => run(() => enrichTrait(traitId).then(() => undefined))}
+                onClick={() => run(() => enrichTrait(traitId, actor).then(() => undefined))}
                 disabled={busy || !trait?.primary_ontology_id}
                 title={trait?.primary_ontology_id ? "Re-pull from OLS / OXO / OpenTargets" : "Map an ontology term first"}
                 className="inline-flex items-center gap-1 text-xs text-base-content/60 hover:text-base-content cursor-pointer disabled:opacity-40"

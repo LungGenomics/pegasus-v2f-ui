@@ -143,6 +143,31 @@ export function FormField({
 }) {
   const id = `field-${name}`;
   const { availableColumns } = useSchemaFormContext();
+  const describe = field.description && !error && (
+    <span className="text-xs text-base-content/60 mt-1">{field.description}</span>
+  );
+  const errorEl = error && <span className="text-xs text-error mt-1">{error}</span>;
+
+  // Booleans read as a single row: toggle + label side by side (with a gap),
+  // not a label stacked above a bare control.
+  if (field.type === "boolean") {
+    return (
+      <div className="form-control">
+        <label htmlFor={id} className="flex items-center gap-2 cursor-pointer py-1">
+          {renderInput(id, field, value, onChange, availableColumns)}
+          {field.label && (
+            <span className="label-text text-sm">
+              {field.label}
+              {field.required && <span className="text-error ml-0.5">*</span>}
+            </span>
+          )}
+        </label>
+        {describe}
+        {errorEl}
+      </div>
+    );
+  }
+
   return (
     <div className="form-control">
       {field.label && (
@@ -154,12 +179,8 @@ export function FormField({
         </label>
       )}
       {renderInput(id, field, value, onChange, availableColumns)}
-      {field.description && !error && (
-        <span className="text-xs text-base-content/60 mt-1">
-          {field.description}
-        </span>
-      )}
-      {error && <span className="text-xs text-error mt-1">{error}</span>}
+      {describe}
+      {errorEl}
     </div>
   );
 }
@@ -555,22 +576,42 @@ function renderInput(
               No columns selected.
             </div>
           )}
-          {remaining.length > 0 && (
-            <select
-              className="select select-bordered select-xs w-full"
-              value=""
-              onChange={(e) => {
-                if (e.target.value) onChange([...list, e.target.value]);
-              }}
-            >
-              <option value="">+ Add column…</option>
-              {remaining.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          )}
+          <div className="flex items-center gap-2">
+            {remaining.length > 0 && (
+              <select
+                className="select select-bordered select-xs flex-1 min-w-0"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) onChange([...list, e.target.value]);
+                }}
+              >
+                <option value="">+ Add column…</option>
+                {remaining.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
+            {remaining.length > 0 && (
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline whitespace-nowrap cursor-pointer shrink-0"
+                onClick={() => onChange([...list, ...remaining])}
+              >
+                Add all
+              </button>
+            )}
+            {list.length > 0 && (
+              <button
+                type="button"
+                className="text-xs text-base-content/50 hover:text-error whitespace-nowrap cursor-pointer shrink-0"
+                onClick={() => onChange([])}
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       );
     }

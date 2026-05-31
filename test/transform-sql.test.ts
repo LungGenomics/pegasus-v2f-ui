@@ -129,19 +129,53 @@ maybe("deduplicate: keeps the FIRST row per key (input order)", () => {
   );
 });
 
-maybe("strip_prefix: removes a literal prefix only at the start", () => {
+maybe("affix: strips a literal prefix only at the start", () => {
   expectRows(
     [{ id: "chr1" }, { id: "1" }, { id: "chrX" }],
-    { type: "strip_prefix", column: "id", prefix: "chr" } as TransformConfigEntry,
+    {
+      type: "affix",
+      columns: ["id"],
+      action: "strip",
+      side: "prefix",
+      text: "chr",
+    } as TransformConfigEntry,
     [{ id: "1" }, { id: "1" }, { id: "X" }],
   );
 });
 
-maybe("uppercase: NULL stays NULL", () => {
+maybe("affix: add prefix is idempotent (no chrchr1)", () => {
+  expectRows(
+    [{ id: "1" }, { id: "chr2" }],
+    {
+      type: "affix",
+      columns: ["id"],
+      action: "add",
+      side: "prefix",
+      text: "chr",
+      idempotent: true,
+    } as TransformConfigEntry,
+    [{ id: "chr1" }, { id: "chr2" }],
+  );
+});
+
+maybe("format_text: uppercase, NULL stays NULL", () => {
   expectRows(
     [{ s: "abc" }, { s: null }],
-    { type: "uppercase", column: "s" } as TransformConfigEntry,
+    { type: "format_text", columns: ["s"], case: "upper" } as TransformConfigEntry,
     [{ s: "ABC" }, { s: null }],
+  );
+});
+
+maybe("format_text: trim + lowercase", () => {
+  expectRows(
+    [{ s: "  AbC  " }],
+    {
+      type: "format_text",
+      columns: ["s"],
+      case: "lower",
+      trim: true,
+    } as TransformConfigEntry,
+    [{ s: "abc" }],
   );
 });
 
@@ -161,11 +195,47 @@ maybe("coerce_numeric: empty string → NULL (not 0)", () => {
   );
 });
 
-maybe("filter_values: keeps rows whose column is in the value list", () => {
+maybe("filter: 'in' keeps rows whose column is in the value list", () => {
   expectRows(
     [{ c: "GWAS" }, { c: "QTL" }, { c: "GWAS" }],
-    { type: "filter_values", column: "c", values: ["GWAS"] } as TransformConfigEntry,
+    { type: "filter", column: "c", operator: "in", values: ["GWAS"] } as TransformConfigEntry,
     [{ c: "GWAS" }, { c: "GWAS" }],
+  );
+});
+
+maybe("filter: numeric '<' threshold (dirty values drop out)", () => {
+  expectRows(
+    [{ p: "0.1" }, { p: "0.001" }, { p: "x" }],
+    { type: "filter", column: "p", operator: "lt", value: "0.05" } as TransformConfigEntry,
+    [{ p: "0.001" }],
+  );
+});
+
+maybe("filter: between (numeric)", () => {
+  expectRows(
+    [{ n: "5" }, { n: "15" }, { n: "25" }],
+    {
+      type: "filter",
+      column: "n",
+      operator: "between",
+      low: "10",
+      high: "20",
+    } as TransformConfigEntry,
+    [{ n: "15" }],
+  );
+});
+
+maybe("filter: contains (case-insensitive)", () => {
+  expectRows(
+    [{ s: "Lung disease" }, { s: "asthma" }],
+    {
+      type: "filter",
+      column: "s",
+      operator: "contains",
+      value: "LUNG",
+      case_insensitive: true,
+    } as TransformConfigEntry,
+    [{ s: "Lung disease" }],
   );
 });
 
@@ -254,5 +324,166 @@ maybe("map_gene_id: unmapped → NULL (kept unless drop_unmapped)", () => {
     { type: "map_gene_id", column: "g", from: "ensembl", to: "hgnc" } as TransformConfigEntry,
     [{ g: "GENEA" }, { g: "GENEB" }, { g: null }],
     post,
+  );
+});
+
+// --- overhaul additions ---
+
+maybe("select: drop mode removes listed columns", () => {
+  expectRows(
+    [{ a: 1, b: 2, c: 3 }],
+    { type: "select", mode: "drop", columns: ["b"] } as TransformConfigEntry,
+    [{ a: 1, c: 3 }],
+  );
+});
+
+maybe("concat_columns: joins with a separator", () => {
+  expectRows(
+    [{ chr: "1", pos: 100 }],
+    {
+      type: "concat_columns",
+      columns: ["chr", "pos"],
+      separator: ":",
+      output: "id",
+    } as TransformConfigEntry,
+    [{ chr: "1", pos: 100, id: "1:100" }],
+  );
+});
+
+maybe("find_replace: literal replace-all (dots escaped)", () => {
+  expectRows(
+    [{ s: "a.b.c" }],
+    { type: "find_replace", column: "s", find: ".", replace: "-" } as TransformConfigEntry,
+    [{ s: "a-b-c" }],
+  );
+});
+
+maybe("find_replace: regex mode", () => {
+  expectRows(
+    [{ s: "abc123" }],
+    {
+      type: "find_replace",
+      column: "s",
+      find: "[0-9]+",
+      replace: "#",
+      regex: true,
+    } as TransformConfigEntry,
+    [{ s: "abc#" }],
+  );
+});
+
+maybe("extract: before a delimiter → new column", () => {
+  expectRows(
+    [{ v: "GENE(trait)" }],
+    {
+      type: "extract",
+      column: "v",
+      into: "gene",
+      mode: "before",
+      delimiter: "(",
+    } as TransformConfigEntry,
+    [{ v: "GENE(trait)", gene: "GENE" }],
+  );
+});
+
+maybe("extract: between two delimiters", () => {
+  expectRows(
+    [{ v: "GENE(trait)" }],
+    {
+      type: "extract",
+      column: "v",
+      into: "term",
+      mode: "between",
+      start_delim: "(",
+      end_delim: ")",
+    } as TransformConfigEntry,
+    [{ v: "GENE(trait)", term: "trait" }],
+  );
+});
+
+maybe("math: -log10 into a new column", () => {
+  expectRows(
+    [{ p: "0.001" }],
+    { type: "math", column: "p", op: "neg_log10", into: "score" } as TransformConfigEntry,
+    [{ p: "0.001", score: 3 }],
+  );
+});
+
+maybe("math: multiply by a constant in place", () => {
+  expectRows(
+    [{ x: "2" }, { x: "3" }],
+    { type: "math", column: "x", op: "multiply", operand: "10" } as TransformConfigEntry,
+    [{ x: 20 }, { x: 30 }],
+  );
+});
+
+maybe("normalize_nulls: sentinels + whitespace → null", () => {
+  expectRows(
+    [{ x: "NA" }, { x: "." }, { x: "  " }, { x: "real" }, { x: "n/a" }],
+    { type: "normalize_nulls", columns: ["x"] } as TransformConfigEntry,
+    [{ x: null }, { x: null }, { x: null }, { x: "real" }, { x: null }],
+  );
+});
+
+maybe("replace_values: maps listed values, passes others", () => {
+  expectRows(
+    [{ sex: "M" }, { sex: "F" }, { sex: "U" }],
+    {
+      type: "replace_values",
+      column: "sex",
+      mapping: { M: "male", F: "female" },
+    } as TransformConfigEntry,
+    [{ sex: "male" }, { sex: "female" }, { sex: "U" }],
+  );
+});
+
+maybe("coerce_numeric: integer mode → BIGINT, bad → null", () => {
+  expectRows(
+    [{ n: "10" }, { n: "x" }],
+    { type: "coerce_numeric", columns: ["n"], integer: true } as TransformConfigEntry,
+    [{ n: 10 }, { n: null }],
+  );
+});
+
+maybe("split_column: trims parts when enabled", () => {
+  expectRows(
+    [{ p: "a , b" }],
+    {
+      type: "split_column",
+      column: "p",
+      delimiter: ",",
+      columns: ["s1", "s2"],
+      trim: true,
+    } as TransformConfigEntry,
+    [{ p: "a , b", s1: "a", s2: "b" }],
+  );
+});
+
+maybe("deduplicate: keep lowest order_by per key", () => {
+  expectRows(
+    [
+      { g: "A", p: 0.5 },
+      { g: "A", p: 0.1 },
+      { g: "B", p: 0.9 },
+    ],
+    {
+      type: "deduplicate",
+      columns: ["g"],
+      order_by: "p",
+      order_dir: "asc",
+      keep: "first",
+    } as TransformConfigEntry,
+    [
+      { g: "A", p: 0.1 },
+      { g: "B", p: 0.9 },
+    ],
+  );
+});
+
+maybe("parse_variant_id: captures ref/alt when enabled", () => {
+  expectRows(
+    [{ v: "chr1:100:A:T" }],
+    { type: "parse_variant_id", column: "v", capture_alleles: true } as TransformConfigEntry,
+    [{ v: "chr1:100:A:T", chromosome: "1", position: 100, ref: "A", alt: "T" }],
   );
 });

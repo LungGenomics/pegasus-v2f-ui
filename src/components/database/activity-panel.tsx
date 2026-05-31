@@ -1,9 +1,9 @@
-// First-pass audit panel (Database page). A commit-history-style feed of
-// recent config changes, derived from the created_by/last_edited_by/*_at
-// columns (recentChanges). Read-only.
+// Activity panel (Database page). A commit-history-style feed of recent config
+// changes, derived from the created_by/last_edited_by/*_at columns
+// (recentChanges). Read-only.
 
 import { useQuery } from "@tanstack/react-query";
-import { recentChanges, type ChangeEntry } from "../../data/queries/audit";
+import { recentChanges, type ChangeEntry } from "../../data/queries/activity";
 
 function relTime(iso?: string | null): string {
   if (!iso) return "";
@@ -16,8 +16,8 @@ function relTime(iso?: string | null): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export function AuditPanel() {
-  const q = useQuery({ queryKey: ["audit-recent"], queryFn: () => recentChanges(100) });
+export function ActivityPanel() {
+  const q = useQuery({ queryKey: ["activity-recent"], queryFn: () => recentChanges(100) });
   const entries = q.data ?? [];
 
   return (

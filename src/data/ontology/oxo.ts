@@ -22,8 +22,16 @@ interface OxoMappingsResponse {
   };
 }
 
+// OxO (EBI SPOT) is a deprecated service and now frequently slow/unresponsive.
+// Bound the request so a hang can't stall trait enrichment — callers already
+// degrade to an empty xref list on any error (including a timeout abort).
+const OXO_TIMEOUT_MS = 6000;
+
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(OXO_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(
       `OXO request failed (${res.status} ${res.statusText}): ${url}`,

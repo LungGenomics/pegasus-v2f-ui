@@ -18,6 +18,14 @@ export interface LocusRow {
   n_signals: number | null;
   n_candidate_genes: number | null;
   source_tag: string | null;
+  /** Gene nearest the locus's lead/source variant (window-midpoint fallback
+   *  when the lead is NULL). Positional, trait-agnostic. Only populated by
+   *  traitLoci(); NULL for loci with no candidate genes (gene desert). */
+  nearest_gene?: string | null;
+  /** Global-rank #1 gene for the queried trait at the locus (most distinct
+   *  evidence categories, score-sum tiebreak). Only populated by traitLoci();
+   *  NULL when the locus has no non-candidate evidence for the trait. */
+  top_gene?: string | null;
 }
 
 export async function listLoci(): Promise<LocusRow[]> {
@@ -144,17 +152,88 @@ export async function getTrait(traitId: string): Promise<TraitDetail | null> {
  *  source_tag for multi-source coloring on the track. */
 export async function traitLoci(traitId: string): Promise<LocusRow[]> {
   const ds = getDataSource();
+  // EXISTS (one row per locus) rather than JOIN+DISTINCT so the two correlated
+  // subqueries below run once per locus, not once per evidence row.
+  //   top_gene    — the GLOBAL-RANK #1 gene for THIS trait at the locus: most
+  //                 distinct evidence categories, ties broken by summed score
+  //                 (then name). Mirrors the evidence-heatmap "#" rank. NULL
+  //                 when the locus has no non-candidate evidence for the trait.
+  //   nearest_gene— ARG_MIN(gene, distance) from the lead/source variant
+  //                 (midpoint fallback) to each candidate gene's body. Genes
+  //                 come from locus_evidence (already biotype-filtered + window-
+  //                 mapped to the locus), joined to gene_reference for coords.
   return ds.query<LocusRow>({
     sql:
-      "SELECT DISTINCT l.locus_id, l.locus_name, l.chromosome, " +
+      "SELECT l.locus_id, l.locus_name, l.chromosome, " +
       "       l.start_position, l.end_position, l.lead_rsid, l.lead_pvalue, " +
-      "       l.n_signals, l.n_candidate_genes, l.source_tag " +
+      "       l.n_signals, l.n_candidate_genes, l.source_tag, " +
+      "       (SELECT gene_symbol FROM ( " +
+      "          SELECT le2.gene_symbol, " +
+      "                 COUNT(DISTINCT le2.evidence_category) AS ncat, " +
+      "                 SUM(TRY_CAST(le2.score AS DOUBLE)) AS ssum " +
+      "            FROM main.locus_evidence le2 " +
+      "           WHERE le2.locus_id = l.locus_id AND le2.trait_id = ? " +
+      "             AND le2.match_type <> 'candidate' " +
+      "             AND le2.gene_symbol IS NOT NULL " +
+      "           GROUP BY le2.gene_symbol " +
+      "           ORDER BY ncat DESC, ssum DESC NULLS LAST, le2.gene_symbol " +
+      "           LIMIT 1) ) AS top_gene, " +
+      "       (SELECT ARG_MIN(g.gene_symbol, GREATEST(0, " +
+      "                 g.\"start\" - COALESCE(l.lead_position, (l.start_position + l.end_position) / 2), " +
+      "                 COALESCE(l.lead_position, (l.start_position + l.end_position) / 2) - g.\"end\")) " +
+      "          FROM (SELECT DISTINCT gene_symbol FROM main.locus_evidence le3 " +
+      "                 WHERE le3.locus_id = l.locus_id AND le3.gene_symbol IS NOT NULL) lg " +
+      "          JOIN main.gene_reference g ON g.gene_symbol = lg.gene_symbol " +
+      "         WHERE g.chromosome = l.chromosome) AS nearest_gene " +
       "FROM main.loci l " +
-      "JOIN main.locus_evidence le ON le.locus_id = l.locus_id " +
-      "WHERE le.trait_id = ? " +
+      "WHERE EXISTS (SELECT 1 FROM main.locus_evidence le " +
+      "              WHERE le.locus_id = l.locus_id AND le.trait_id = ?) " +
       "ORDER BY l.chromosome, l.start_position",
+    params: [traitId, traitId],
+  });
+}
+
+/** Distinct non-candidate evidence categories for a trait — populates the
+ *  "Top gene by category" picker on the Traits page. */
+export async function traitEvidenceCategories(
+  traitId: string,
+): Promise<string[]> {
+  const ds = getDataSource();
+  const rows = await ds.query<{ evidence_category: string }>({
+    sql:
+      "SELECT DISTINCT evidence_category FROM main.locus_evidence " +
+      "WHERE trait_id = ? AND match_type <> 'candidate' " +
+      "  AND evidence_category IS NOT NULL AND evidence_category <> '' " +
+      "ORDER BY evidence_category",
     params: [traitId],
   });
+  return rows.map((r) => r.evidence_category);
+}
+
+/** Per-locus top gene WITHIN a single evidence category for a trait: the gene
+ *  with the highest summed score in that category at each locus. Returns a
+ *  locus_id → gene_symbol map (loci with no gene in the category are absent;
+ *  the UI falls back to the cytoband label for those). */
+export async function traitLociTopGeneByCategory(
+  traitId: string,
+  category: string,
+): Promise<Map<string, string>> {
+  const ds = getDataSource();
+  const rows = await ds.query<{ locus_id: string; gene_symbol: string }>({
+    sql:
+      "SELECT locus_id, gene_symbol FROM ( " +
+      "  SELECT le.locus_id, le.gene_symbol, " +
+      "         ROW_NUMBER() OVER (PARTITION BY le.locus_id " +
+      "           ORDER BY SUM(TRY_CAST(le.score AS DOUBLE)) DESC NULLS LAST, " +
+      "                    le.gene_symbol) AS rn " +
+      "    FROM main.locus_evidence le " +
+      "   WHERE le.trait_id = ? AND le.evidence_category = ? " +
+      "     AND le.match_type <> 'candidate' AND le.gene_symbol IS NOT NULL " +
+      "   GROUP BY le.locus_id, le.gene_symbol " +
+      ") WHERE rn = 1",
+    params: [traitId, category],
+  });
+  return new Map(rows.map((r) => [r.locus_id, r.gene_symbol]));
 }
 
 /** Distinct loci-mapping sources whose loci this trait touches — for the

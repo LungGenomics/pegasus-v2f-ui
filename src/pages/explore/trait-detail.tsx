@@ -7,7 +7,7 @@
 // zoom, imperative DOM toggling to avoid re-renders during pan/zoom) is ported
 // from the old trait-detail page — Sam wanted it kept.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { X, Pencil } from "lucide-react";
@@ -18,6 +18,8 @@ import {
   traitLoci,
   traitSourceTags,
   traitSources,
+  traitEvidenceCategories,
+  traitLociTopGeneByCategory,
   locusGenes,
   type LocusRow,
 } from "../../data/queries/explore";
@@ -33,6 +35,57 @@ import { STUDY_PALETTE } from "../../lib/colors";
 
 function withChr(c: string): string {
   return c.startsWith("chr") ? c : `chr${c}`;
+}
+
+type LabelMode =
+  | "cytoband"
+  | "coords"
+  | "nearest"
+  | "top_gene"
+  | "top_gene_category";
+
+const LABEL_MODES: { value: LabelMode; label: string }[] = [
+  { value: "cytoband", label: "Cytoband" },
+  { value: "coords", label: "Coordinates" },
+  { value: "nearest", label: "Nearest gene" },
+  { value: "top_gene", label: "Top gene" },
+  { value: "top_gene_category", label: "By category" },
+];
+
+function cytobandText(l: LocusRow): string {
+  return l.locus_name || l.lead_rsid || l.locus_id;
+}
+function coordText(l: LocusRow): string {
+  return formatCoordinate(l.chromosome ?? "", l.start_position ?? 0, l.end_position ?? 0);
+}
+
+/** Primary label for a locus under the given mode. Gene-based modes fall back
+ *  to cytoband when no gene resolves (gene desert / no evidence in scope).
+ *  `byCatGene` is the per-locus top gene for the selected category, supplied
+ *  only in "top_gene_category" mode. */
+function labelText(
+  l: LocusRow,
+  mode: LabelMode,
+  byCatGene?: string | null,
+): string {
+  switch (mode) {
+    case "coords":
+      return coordText(l);
+    case "nearest":
+      return l.nearest_gene || cytobandText(l);
+    case "top_gene":
+      return l.top_gene || cytobandText(l);
+    case "top_gene_category":
+      return byCatGene || cytobandText(l);
+    default:
+      return cytobandText(l);
+  }
+}
+
+/** Secondary (muted) label: the coordinate, except in coords mode where the
+ *  cytoband is the more useful companion. */
+function secondaryText(l: LocusRow, mode: LabelMode): string {
+  return mode === "coords" ? cytobandText(l) : coordText(l);
 }
 
 // Trait-detail content, rendered inside the Traits page for the selected
@@ -68,16 +121,42 @@ export function TraitDetail({ traitId }: { traitId: string }) {
   const trackRef = useRef<GenomeTrackHandle>(null);
 
   const [locusFilter, setLocusFilter] = useState("");
-  // Loci are named by cytoband (locus_name); the coordinate is derivable from
-  // the geometry. Toggle which one labels the track + list.
-  const [labelMode, setLabelMode] = useState<"cytoband" | "coords">("cytoband");
+  // How loci are labeled on the track + list. cytoband (locus_name) and coords
+  // are derivable from each locus's geometry; nearest/top_gene come from
+  // traitLoci(); top_gene_category resolves per-locus from byCatMap below. All
+  // gene modes fall back to cytoband when no gene resolves.
+  const [labelMode, setLabelMode] = useState<LabelMode>("cytoband");
+  // Selected category for the "By category" label mode.
+  const [scoreCategory, setScoreCategory] = useState<string | null>(null);
+
+  // Categories available for the by-category picker (only fetched when needed).
+  const categoriesQ = useQuery({
+    queryKey: ["explore", "trait-ev-categories", traitId],
+    queryFn: () => traitEvidenceCategories(traitId),
+    enabled: !!traitId && labelMode === "top_gene_category",
+  });
+  const categories = useMemo(() => categoriesQ.data ?? [], [categoriesQ.data]);
+  // Default / repair the selected category once the list loads.
+  useEffect(() => {
+    if (labelMode !== "top_gene_category" || categories.length === 0) return;
+    if (!scoreCategory || !categories.includes(scoreCategory)) {
+      setScoreCategory(categories[0]!);
+    }
+  }, [labelMode, categories, scoreCategory]);
+
+  // Per-locus top gene within the selected category (by-category mode only).
+  const byCatQ = useQuery({
+    queryKey: ["explore", "trait-topgene-cat", traitId, scoreCategory],
+    queryFn: () => traitLociTopGeneByCategory(traitId, scoreCategory!),
+    enabled:
+      !!traitId && labelMode === "top_gene_category" && !!scoreCategory,
+  });
+  const byCatMap = byCatQ.data ?? null;
 
   const lociLabel = useCallback(
     (l: LocusRow): string =>
-      labelMode === "coords"
-        ? formatCoordinate(l.chromosome ?? "", l.start_position ?? 0, l.end_position ?? 0)
-        : l.locus_name || l.lead_rsid || l.locus_id,
-    [labelMode],
+      labelText(l, labelMode, byCatMap?.get(l.locus_id)),
+    [labelMode, byCatMap],
   );
 
   // Color loci by their loci-mapping source_tag when a trait spans more than
@@ -128,7 +207,16 @@ export function TraitDetail({ traitId }: { traitId: string }) {
     loci.forEach((l, i) => {
       const tl = trackLoci[i];
       if (!tl) return;
-      const hay = [l.locus_name, l.locus_id, l.lead_rsid, l.chromosome, l.source_tag]
+      const hay = [
+        l.locus_name,
+        l.locus_id,
+        l.lead_rsid,
+        l.chromosome,
+        l.source_tag,
+        l.nearest_gene,
+        l.top_gene,
+        byCatMap?.get(l.locus_id),
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -138,7 +226,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
       }
     });
     return { filteredTrackLoci: filtered, matchingIndices: indices };
-  }, [trackLoci, loci, locusFilter]);
+  }, [trackLoci, loci, locusFilter, byCatMap]);
 
   // --- Viewport → list filtering (imperative DOM, ported from old UI) ---
   const lociAbsPositions = useMemo(() => {
@@ -304,22 +392,40 @@ export function TraitDetail({ traitId }: { traitId: string }) {
             </button>
           )}
         </label>
-        <div className="inline-flex bg-base-200 rounded-md p-0.5 text-xs">
-          {(["cytoband", "coords"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setLabelMode(m)}
-              className={`px-2 py-0.5 rounded-md cursor-pointer ${
-                labelMode === m
-                  ? "bg-base-100 text-base-content font-medium shadow-sm"
-                  : "text-base-content/60 hover:text-base-content"
-              }`}
-            >
-              {m === "cytoband" ? "Cytoband" : "Coordinates"}
-            </button>
-          ))}
-        </div>
+        <label className="inline-flex items-center gap-1 text-xs text-base-content/60">
+          Label
+          <select
+            className="select select-bordered select-xs"
+            value={labelMode}
+            onChange={(e) => setLabelMode(e.target.value as LabelMode)}
+            title="How loci are labeled on the track and list"
+          >
+            {LABEL_MODES.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {labelMode === "top_gene_category" && (
+          <select
+            className="select select-bordered select-xs font-mono"
+            value={scoreCategory ?? ""}
+            onChange={(e) => setScoreCategory(e.target.value || null)}
+            disabled={categories.length === 0}
+            title="Evidence category for the top-gene label"
+          >
+            {categories.length === 0 ? (
+              <option value="">no categories</option>
+            ) : (
+              categories.map((c) => (
+                <option key={c} value={c}>
+                  {EVIDENCE_CATEGORIES[c] ?? c}
+                </option>
+              ))
+            )}
+          </select>
+        )}
         {chromQ.data && (
           <div className="ml-auto">
             <TrackControls
@@ -346,6 +452,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
         onSelect={setSelectedLocus}
         sourceColors={multiSource ? sourceColors : undefined}
         labelMode={labelMode}
+        byCatMap={byCatMap}
       />
 
       <TraitSourcesPanel traitId={traitId} />
@@ -363,6 +470,7 @@ function LociPane({
   onSelect,
   sourceColors,
   labelMode,
+  byCatMap,
 }: {
   loci: LocusRow[];
   traitId: string;
@@ -370,11 +478,9 @@ function LociPane({
   selectedLocusId?: string;
   onSelect: (id: string | null) => void;
   sourceColors?: Record<string, string>;
-  labelMode: "cytoband" | "coords";
+  labelMode: LabelMode;
+  byCatMap: Map<string, string> | null;
 }) {
-  const cyto = (l: LocusRow) => l.locus_name || l.locus_id;
-  const coord = (l: LocusRow) =>
-    formatCoordinate(l.chromosome ?? "", l.start_position ?? 0, l.end_position ?? 0);
   const selected = selectedLocusId
     ? loci.find((l) => l.locus_id === selectedLocusId)
     : undefined;
@@ -402,7 +508,8 @@ function LociPane({
   }
 
   return (
-    <div ref={listRef} className="border border-base-300 rounded-lg overflow-hidden">
+    <div className="border border-base-300 rounded-lg overflow-hidden">
+      <div ref={listRef} className="overflow-y-auto max-h-[calc(100vh-22rem)]">
       {loci.map((l, i) => (
         <button
           key={l.locus_id}
@@ -417,16 +524,17 @@ function LociPane({
             />
           )}
           <span className="text-sm font-medium font-mono min-w-0 truncate">
-            {labelMode === "coords" ? coord(l) : cyto(l)}
+            {labelText(l, labelMode, byCatMap?.get(l.locus_id))}
           </span>
           <span className="text-xs text-base-content/40 hidden sm:inline">
-            {labelMode === "coords" ? cyto(l) : coord(l)}
+            {secondaryText(l, labelMode)}
           </span>
           <span className="text-xs text-base-content/40 ml-auto tabular-nums shrink-0">
             {l.n_candidate_genes ?? 0} genes
           </span>
         </button>
       ))}
+      </div>
     </div>
   );
 }
