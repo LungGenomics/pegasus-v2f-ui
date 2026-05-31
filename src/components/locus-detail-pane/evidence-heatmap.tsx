@@ -160,17 +160,17 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
     items: LocusGeneEvidence[],
     pinned: boolean,
   ): PopoverState => {
-    const container = containerRef.current;
-    if (!container) return null;
-    const containerRect = container.getBoundingClientRect();
     const cellRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    // Viewport coordinates — the popover renders position:fixed so it escapes
+    // the heatmap's overflow-x-auto container (which would otherwise clip it
+    // when the loci list is short).
     return {
       gene,
       cat,
       items,
       catLabel: categories[cat] ?? cat,
-      x: cellRect.left - containerRect.left + cellRect.width / 2,
-      y: cellRect.bottom - containerRect.top + 4,
+      x: cellRect.left + cellRect.width / 2,
+      y: cellRect.bottom + 4,
       pinned,
     };
   };
@@ -289,11 +289,13 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
       {popover && (
         <div
           ref={popoverRef}
-          className={`absolute z-20 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 w-72 ${
+          className={`fixed z-50 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 w-72 ${
             popover.pinned ? "" : "pointer-events-none"
           }`}
           style={{
-            left: Math.min(popover.x - 144, (containerRef.current?.scrollWidth ?? 300) - 288),
+            // Clamp to the viewport so a near-edge cell doesn't push it
+            // off-screen (8px gutter; popover is w-72 = 288px).
+            left: Math.max(8, Math.min(popover.x - 144, window.innerWidth - 288 - 8)),
             top: popover.y,
           }}
         >
