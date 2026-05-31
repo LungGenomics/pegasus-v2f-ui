@@ -344,7 +344,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
   const trait = traitQ.data;
 
   return (
-    <div>
+    <div className="min-w-0">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold">{trait?.label ?? traitId}</h1>
@@ -375,7 +375,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
 
       {/* Genome track */}
       {chromQ.data && trackLoci.length > 0 && (
-        <div className="mt-4">
+        <div className="mt-4 min-w-0 overflow-hidden">
           <GenomeTrack
             ref={trackRef}
             loci={filteredTrackLoci}
