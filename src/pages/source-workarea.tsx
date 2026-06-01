@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Loader2,
   Upload,
+  Braces,
 } from "lucide-react";
 import { getSource, updateSource, removeSource } from "../data/sourceOps";
 import { reingestSource } from "../data/pipeline/ingest";
@@ -69,6 +70,12 @@ import {
 import { SchemaFormProvider } from "../components/schema-form/context";
 import type { TransformConfigEntry } from "../api/types";
 import { MappingCardForm } from "./mapping-form";
+import {
+  JsonIoModal,
+  type JsonIoMode,
+  type ApplyResult,
+} from "../components/json-io";
+import { exportMappings, importMappings, type MappingJson } from "../data/configIO";
 import { useSyncSession } from "../hooks/useSyncSession";
 
 type InspectorTab = "details" | "transforms" | "mappings";
@@ -782,7 +789,35 @@ function TransformsTab({
   }, [persistedSig, sourceId]);
 
   const [adding, setAdding] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
   const isDirty = JSON.stringify(draft) !== persistedSig;
+
+  // JSON import: parse an array of {type, ...params} into draft steps (append or
+  // replace). Stays in the draft — the user reviews + Saves like the cards.
+  const applyJson = async (
+    parsed: unknown,
+    mode: JsonIoMode,
+  ): Promise<ApplyResult> => {
+    if (!Array.isArray(parsed)) {
+      throw new Error("Expected a JSON array of transform steps.");
+    }
+    const errors: string[] = [];
+    const steps: DraftStep[] = [];
+    parsed.forEach((e, i) => {
+      if (!e || typeof e !== "object" || Array.isArray(e)) {
+        errors.push(`#${i + 1}: not an object`);
+        return;
+      }
+      const { type, ...params } = e as Record<string, unknown>;
+      if (typeof type !== "string" || !type.trim()) {
+        errors.push(`#${i + 1}: missing "type"`);
+        return;
+      }
+      steps.push({ type, params: params as Record<string, unknown> });
+    });
+    setDraft(mode === "replace" ? steps : [...draft, ...steps]);
+    return { applied: steps.length, errors };
+  };
 
   // Input columns for each step = the schema produced by all PRIOR steps, so a
   // step's column picker can reference columns an earlier step generated (e.g.
@@ -864,16 +899,36 @@ function TransformsTab({
         {adding ? (
           <AddStepPicker onPick={addStep} onCancel={() => setAdding(false)} />
         ) : (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="btn btn-primary btn-sm gap-1 w-full"
-          >
-            <Plus className="size-3.5" />
-            Add step
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="btn btn-primary btn-sm gap-1 flex-1"
+            >
+              <Plus className="size-3.5" />
+              Add step
+            </button>
+            <button
+              type="button"
+              onClick={() => setJsonOpen(true)}
+              title="Import / export the whole pipeline as JSON"
+              className="btn btn-ghost btn-sm gap-1"
+            >
+              <Braces className="size-3.5" />
+              JSON
+            </button>
+          </div>
         )}
       </div>
+      {jsonOpen && (
+        <JsonIoModal
+          title="Transforms"
+          exportValue={draft.map((t) => ({ type: t.type, ...t.params }))}
+          modes={["append", "replace"]}
+          onApply={applyJson}
+          onClose={() => setJsonOpen(false)}
+        />
+      )}
       {isDirty && (
         <div className="shrink-0 px-3 py-2 border-t border-base-300 bg-base-100 flex items-center gap-2">
           <button
@@ -1152,6 +1207,24 @@ function MappingsTab({
     invalidate();
   };
 
+  // JSON import/export of all this source's mappings (portable, traits by
+  // label). Export snapshots the current set; import (append/replace) inserts
+  // and triggers the derived rebuild.
+  const [jsonOpen, setJsonOpen] = useState(false);
+  const [exportData, setExportData] = useState<MappingJson[]>([]);
+  const openJson = () => {
+    void exportMappings(sourceId).then(setExportData);
+    setJsonOpen(true);
+  };
+  const applyMappingsJson = async (
+    parsed: unknown,
+    mode: JsonIoMode,
+  ): Promise<ApplyResult> => {
+    const r = await importMappings(sourceId, parsed, mode, actor);
+    invalidate();
+    return { applied: r.inserted, errors: r.errors };
+  };
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex-1 overflow-auto p-4 space-y-3">
@@ -1192,20 +1265,40 @@ function MappingsTab({
             ))}
           </>
         )}
-        <button
-          type="button"
-          onClick={addNew}
-          className="btn btn-primary btn-sm gap-1 w-full"
-        >
-          <Plus className="size-3.5" />
-          Add mapping
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={addNew}
+            className="btn btn-primary btn-sm gap-1 flex-1"
+          >
+            <Plus className="size-3.5" />
+            Add mapping
+          </button>
+          <button
+            type="button"
+            onClick={openJson}
+            title="Import / export all mappings as JSON"
+            className="btn btn-ghost btn-sm gap-1"
+          >
+            <Braces className="size-3.5" />
+            JSON
+          </button>
+        </div>
         {rebuilding && (
           <p className="text-xs text-base-content/40 text-center">
             Rebuilding traits, loci &amp; evidence…
           </p>
         )}
       </div>
+      {jsonOpen && (
+        <JsonIoModal
+          title="Mappings"
+          exportValue={exportData}
+          modes={["append", "replace"]}
+          onApply={applyMappingsJson}
+          onClose={() => setJsonOpen(false)}
+        />
+      )}
     </div>
   );
 }
