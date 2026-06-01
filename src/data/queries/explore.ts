@@ -17,6 +17,9 @@ export interface LocusRow {
   lead_pvalue: number | null;
   n_signals: number | null;
   n_candidate_genes: number | null;
+  /** Same-trait non-candidate evidence rows at this locus. Only populated by
+   *  traitLoci() (for the evidence-count sort). */
+  n_evidence?: number | null;
   source_tag: string | null;
   /** Gene nearest the locus's lead/source variant (window-midpoint fallback
    *  when the lead is NULL). Positional, trait-agnostic. Only populated by
@@ -175,6 +178,9 @@ export async function traitLoci(
       "SELECT l.locus_id, l.locus_name, l.chromosome, " +
       "       l.start_position, l.end_position, l.lead_rsid, l.lead_pvalue, " +
       "       l.n_signals, l.n_candidate_genes, l.source_tag, " +
+      "       (SELECT COUNT(*) FROM main.locus_evidence le4 " +
+      "          WHERE le4.locus_id = l.locus_id AND NOT le4.is_cross_trait " +
+      "            AND le4.match_type <> 'candidate') AS n_evidence, " +
       "       (SELECT gene_symbol FROM ( " +
       "          SELECT le2.gene_symbol, " +
       "                 COUNT(DISTINCT le2.evidence_category) AS ncat, " +

@@ -10,8 +10,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { X, Pencil, SlidersHorizontal } from "lucide-react";
+import {
+  X,
+  Pencil,
+  SlidersHorizontal,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+} from "lucide-react";
 import { useSyncSession } from "../../hooks/useSyncSession";
+import { usePersistentState } from "../../hooks/usePersistentState";
 import { TraitEditor } from "../../components/trait-editor/trait-editor";
 import {
   getTrait,
@@ -53,6 +60,26 @@ const LABEL_MODES: { value: LabelMode; label: string }[] = [
   { value: "top_gene", label: "Top gene" },
   { value: "top_gene_category", label: "By category" },
 ];
+
+type SortKey = "position" | "evidence" | "genes";
+type SortDir = "asc" | "desc";
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "position", label: "Position" },
+  { value: "evidence", label: "Evidence count" },
+  { value: "genes", label: "Gene count" },
+];
+
+/** Sort the loci list. `position` keeps the query's genomic order (reversed for
+ *  descending); count sorts are stable, so ties keep genomic order. Only the
+ *  list order changes — the genome track positions by coordinate regardless. */
+function sortLoci(loci: LocusRow[], key: SortKey, dir: SortDir): LocusRow[] {
+  if (key === "position") return dir === "asc" ? loci : [...loci].reverse();
+  const sign = dir === "asc" ? 1 : -1;
+  const val = (l: LocusRow) =>
+    key === "evidence" ? (l.n_evidence ?? 0) : (l.n_candidate_genes ?? 0);
+  return [...loci].sort((a, b) => (val(a) - val(b)) * sign);
+}
 
 function cytobandText(l: LocusRow): string {
   return l.locus_name || l.lead_rsid || l.locus_id;
@@ -96,6 +123,10 @@ function secondaryText(l: LocusRow, mode: LabelMode): string {
 function LociFilters({
   labelMode,
   onLabelMode,
+  sortKey,
+  onSortKey,
+  sortDir,
+  onSortDir,
   scoreCategory,
   onScoreCategory,
   categories,
@@ -105,6 +136,10 @@ function LociFilters({
 }: {
   labelMode: LabelMode;
   onLabelMode: (m: LabelMode) => void;
+  sortKey: SortKey;
+  onSortKey: (k: SortKey) => void;
+  sortDir: SortDir;
+  onSortDir: (d: SortDir) => void;
   scoreCategory: string | null;
   onScoreCategory: (c: string | null) => void;
   categories: string[];
@@ -182,6 +217,35 @@ function LociFilters({
             </label>
           )}
 
+          <div className="border-t border-base-200 pt-2">
+            <span className="text-xs text-base-content/50">Sort by</span>
+            <div className="flex items-center gap-1 mt-1">
+              <select
+                className="select select-bordered select-xs flex-1"
+                value={sortKey}
+                onChange={(e) => onSortKey(e.target.value as SortKey)}
+              >
+                {SORT_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => onSortDir(sortDir === "asc" ? "desc" : "asc")}
+                title={sortDir === "asc" ? "Increasing" : "Decreasing"}
+                className="btn btn-xs btn-ghost px-1.5"
+              >
+                {sortDir === "asc" ? (
+                  <ArrowUpNarrowWide className="size-3.5" />
+                ) : (
+                  <ArrowDownWideNarrow className="size-3.5" />
+                )}
+              </button>
+            </div>
+          </div>
+
           {sources.length > 0 && (
             <div className="border-t border-base-200 pt-2">
               <div className="flex items-center justify-between">
@@ -257,7 +321,21 @@ export function TraitDetail({ traitId }: { traitId: string }) {
     queryFn: () => fetchChromSizes("hg38"),
   });
 
-  const loci = useMemo(() => lociQ.data ?? [], [lociQ.data]);
+  // Loci view prefs persist across traits (TraitDetail is keyed per-trait, so
+  // these would otherwise reset on every switch) + reloads. The definition-
+  // source filter stays per-trait (selectedSources) — sources differ by trait.
+  const [sortKey, setSortKey] = usePersistentState<SortKey>(
+    "pegasus-v2f.trait.sortKey",
+    "position",
+  );
+  const [sortDir, setSortDir] = usePersistentState<SortDir>(
+    "pegasus-v2f.trait.sortDir",
+    "asc",
+  );
+  const loci = useMemo(
+    () => sortLoci(lociQ.data ?? [], sortKey, sortDir),
+    [lociQ.data, sortKey, sortDir],
+  );
   const sourceTags = tagsQ.data ?? [];
   const multiSource = sourceTags.length > 1;
   const trackRef = useRef<GenomeTrackHandle>(null);
@@ -267,9 +345,15 @@ export function TraitDetail({ traitId }: { traitId: string }) {
   // are derivable from each locus's geometry; nearest/top_gene come from
   // traitLoci(); top_gene_category resolves per-locus from byCatMap below. All
   // gene modes fall back to cytoband when no gene resolves.
-  const [labelMode, setLabelMode] = useState<LabelMode>("cytoband");
+  const [labelMode, setLabelMode] = usePersistentState<LabelMode>(
+    "pegasus-v2f.trait.labelMode",
+    "cytoband",
+  );
   // Selected category for the "By category" label mode.
-  const [scoreCategory, setScoreCategory] = useState<string | null>(null);
+  const [scoreCategory, setScoreCategory] = usePersistentState<string | null>(
+    "pegasus-v2f.trait.scoreCategory",
+    null,
+  );
 
   // Categories available for the by-category picker (only fetched when needed).
   const categoriesQ = useQuery({
@@ -554,6 +638,10 @@ export function TraitDetail({ traitId }: { traitId: string }) {
         <LociFilters
           labelMode={labelMode}
           onLabelMode={setLabelMode}
+          sortKey={sortKey}
+          onSortKey={setSortKey}
+          sortDir={sortDir}
+          onSortDir={setSortDir}
           scoreCategory={scoreCategory}
           onScoreCategory={setScoreCategory}
           categories={categories}
