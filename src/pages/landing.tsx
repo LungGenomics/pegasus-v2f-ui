@@ -12,7 +12,7 @@ import { EVIDENCE_CATEGORIES } from "../data/static";
 import { CATEGORY_HUES } from "../components/locus-detail-pane/evidence-heatmap";
 import { landingStats } from "../data/queries/explore";
 
-const EXAMPLES = ["FAM13A", "rs7671167", "FEV1"];
+const EXAMPLES = ["TGFB2", "SERPINA1", "FEV1"];
 
 export function LandingPage() {
   const [query, setQuery] = useState("");

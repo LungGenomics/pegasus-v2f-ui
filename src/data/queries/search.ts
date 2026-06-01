@@ -38,16 +38,17 @@ export async function jointSearch(raw: string, limit = 25): Promise<JointHit[]> 
 
   const sql = `
     WITH hits AS (
-      -- Genes: search the full reference so any gene is findable; the count
-      -- is how many loci implicate it (0 = present but not implicated here).
-      SELECT 'gene' AS type, CAST(g.gene_symbol AS VARCHAR) AS key,
-             g.gene_symbol AS label,
+      -- Genes: only those implicated in THIS database — i.e. present in
+      -- locus_evidence (a candidate of some locus or carrying evidence). The
+      -- full gene_reference is the whole genome; searching it surfaced genes
+      -- with no loci hits (n=0), which is noise. n = # loci implicating it.
+      SELECT 'gene' AS type, CAST(le.gene_symbol AS VARCHAR) AS key,
+             le.gene_symbol AS label,
              CAST(COUNT(DISTINCT le.locus_id) AS INTEGER) AS n,
-             ${score("g.gene_symbol")} AS score
-      FROM main.gene_reference g
-      LEFT JOIN main.locus_evidence le ON le.gene_symbol = g.gene_symbol
-      WHERE ${match("g.gene_symbol")}
-      GROUP BY g.gene_symbol
+             ${score("le.gene_symbol")} AS score
+      FROM main.locus_evidence le
+      WHERE le.gene_symbol IS NOT NULL AND ${match("le.gene_symbol")}
+      GROUP BY le.gene_symbol
 
       UNION ALL
       SELECT 'locus', CAST(locus_id AS VARCHAR), COALESCE(locus_name, locus_id),
