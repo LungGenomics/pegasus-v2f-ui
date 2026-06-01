@@ -44,6 +44,8 @@ export function TraitEditor({
   const trait = traitQ.data;
 
   const [busy, setBusy] = useState(false);
+  // What the in-flight action is doing — shown in the loading overlay.
+  const [busyLabel, setBusyLabel] = useState("Working…");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OlsSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -77,7 +79,8 @@ export function TraitEditor({
     return () => clearTimeout(t);
   }, [query]);
 
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<void>, label = "Working…") => {
+    setBusyLabel(label);
     setBusy(true);
     try {
       await fn();
@@ -94,7 +97,7 @@ export function TraitEditor({
       await setTraitMapping(traitId, r, actor);
       setQuery("");
       setResults([]);
-    });
+    }, "Mapping & enriching from OLS / OpenTargets…");
 
   const kindValue: TraitKind | "auto" = trait?.trait_kind_overridden
     ? (trait.trait_kind ?? "auto")
@@ -119,7 +122,8 @@ export function TraitEditor({
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
-      <div className="w-full max-w-lg max-h-[85vh] overflow-auto rounded-lg border border-base-300 bg-base-100 shadow-xl">
+      <div className="relative w-full max-w-lg">
+      <div className="max-h-[85vh] overflow-auto rounded-lg border border-base-300 bg-base-100 shadow-xl">
         <div className="flex items-center justify-between border-b border-base-300 px-4 py-3">
           <h2 className="text-sm font-semibold">Edit trait</h2>
           <button
@@ -152,7 +156,12 @@ export function TraitEditor({
                 </span>
                 <button
                   type="button"
-                  onClick={() => run(() => clearTraitMapping(traitId, actor))}
+                  onClick={() =>
+                    run(
+                      () => clearTraitMapping(traitId, actor),
+                      "Clearing mapping…",
+                    )
+                  }
                   disabled={busy}
                   className="ml-auto inline-flex items-center gap-1 text-xs text-error/80 hover:text-error cursor-pointer disabled:opacity-50"
                 >
@@ -212,8 +221,14 @@ export function TraitEditor({
                 value={kindValue}
                 disabled={busy}
                 onChange={(e) =>
-                  run(() =>
-                    setTraitKind(traitId, e.target.value as TraitKind | "auto", actor),
+                  run(
+                    () =>
+                      setTraitKind(
+                        traitId,
+                        e.target.value as TraitKind | "auto",
+                        actor,
+                      ),
+                    "Updating trait kind…",
                   )
                 }
                 className="w-full appearance-none pl-2.5 pr-9 py-1.5 text-sm rounded-md border border-base-300 bg-base-100 focus:outline-none focus:border-primary disabled:opacity-50"
@@ -239,7 +254,12 @@ export function TraitEditor({
               <div className="text-xs font-medium text-base-content/50">Enrichment</div>
               <button
                 type="button"
-                onClick={() => run(() => enrichTrait(traitId, actor).then(() => undefined))}
+                onClick={() =>
+                  run(
+                    () => enrichTrait(traitId, actor).then(() => undefined),
+                    "Refreshing enrichment…",
+                  )
+                }
                 disabled={busy || !trait?.primary_ontology_id}
                 title={trait?.primary_ontology_id ? "Re-pull from OLS / OXO / OpenTargets" : "Map an ontology term first"}
                 className="inline-flex items-center gap-1 text-xs text-base-content/60 hover:text-base-content cursor-pointer disabled:opacity-40"
@@ -257,6 +277,20 @@ export function TraitEditor({
             </dl>
           </div>
         </div>
+      </div>
+
+      {/* Loading overlay — covers the card while an action (esp. ontology
+          mapping + enrichment, which hits OLS / OpenTargets) is in flight.
+          Always rendered so it fades in/out via opacity rather than popping. */}
+      <div
+        aria-hidden={!busy}
+        className={`pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-base-100/75 backdrop-blur-[1px] transition-opacity duration-200 ${
+          busy ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        <Loader2 className="size-7 animate-spin text-primary" />
+        <p className="text-sm text-base-content/70">{busyLabel}</p>
+      </div>
       </div>
     </div>
   );
