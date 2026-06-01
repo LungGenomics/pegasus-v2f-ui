@@ -9,7 +9,7 @@
 // fill description / synonyms / hierarchy / xrefs / kind (+ OT for diseases).
 
 import { getDataSource } from "./select";
-import { getTrait } from "./traitOps";
+import { getTrait, withTraitDereferenced } from "./traitOps";
 import { enrichTrait } from "./ontology/enrich";
 import type { OlsSearchResult } from "./ontology/ols";
 import type { ConfigTrait } from "../api/types";
@@ -34,30 +34,34 @@ export async function setTraitMapping(
   const trait = await getTrait(traitId);
   if (!trait) throw new Error(`Trait ${traitId} not found`);
   const ds = getDataSource();
-  await ds.exec({
-    sql:
-      "UPDATE config.traits SET " +
-      "  primary_ontology = ?, primary_ontology_id = ?, ontology_label = ?, " +
-      "  description = ?, synonyms = ?, " +
-      RESET_ENRICHMENT +
-      ", " +
-      BUMP +
-      " WHERE id = ?",
-    params: [
-      ols.ontology,
-      ols.obo_id,
-      ols.label,
-      ols.description ?? null,
-      ols.synonyms ? JSON.stringify(ols.synonyms) : null,
-      actor,
-      traitId,
-    ],
+  // Detach FK referrers for the duration of the write (incl. enrichment) — the
+  // wasm engine can't UPDATE an FK-referenced trait row. See withTraitDereferenced.
+  await withTraitDereferenced(traitId, async () => {
+    await ds.exec({
+      sql:
+        "UPDATE config.traits SET " +
+        "  primary_ontology = ?, primary_ontology_id = ?, ontology_label = ?, " +
+        "  description = ?, synonyms = ?, " +
+        RESET_ENRICHMENT +
+        ", " +
+        BUMP +
+        " WHERE id = ?",
+      params: [
+        ols.ontology,
+        ols.obo_id,
+        ols.label,
+        ols.description ?? null,
+        ols.synonyms ? JSON.stringify(ols.synonyms) : null,
+        actor,
+        traitId,
+      ],
+    });
+    // Repopulate description/synonyms/hierarchy/xrefs/kind (+OT) from the term.
+    // Errors are swallowed inside enrichTrait — the mapping is already saved.
+    // Each upstream fetch is time-bounded (see ontology clients) so a slow/dead
+    // service (e.g. the deprecated OxO) can't stall this for minutes.
+    await enrichTrait(traitId, actor);
   });
-  // Repopulate description/synonyms/hierarchy/xrefs/kind (+OT) from the term.
-  // Errors are swallowed inside enrichTrait — the mapping is already saved.
-  // Each upstream fetch is time-bounded (see ontology clients) so a slow/dead
-  // service (e.g. the deprecated OxO) can't stall this for minutes.
-  await enrichTrait(traitId, actor);
 }
 
 /** Clear a trait's ontology mapping → back to a bare, unmapped label.
@@ -67,16 +71,18 @@ export async function clearTraitMapping(
   actor: string | null = null,
 ): Promise<void> {
   const ds = getDataSource();
-  await ds.exec({
-    sql:
-      "UPDATE config.traits SET " +
-      "  primary_ontology = NULL, primary_ontology_id = NULL, " +
-      "  ontology_label = NULL, description = NULL, synonyms = NULL, " +
-      RESET_ENRICHMENT +
-      ", " +
-      BUMP +
-      " WHERE id = ?",
-    params: [actor, traitId],
+  await withTraitDereferenced(traitId, async () => {
+    await ds.exec({
+      sql:
+        "UPDATE config.traits SET " +
+        "  primary_ontology = NULL, primary_ontology_id = NULL, " +
+        "  ontology_label = NULL, description = NULL, synonyms = NULL, " +
+        RESET_ENRICHMENT +
+        ", " +
+        BUMP +
+        " WHERE id = ?",
+      params: [actor, traitId],
+    });
   });
 }
 
@@ -91,31 +97,35 @@ export async function setTraitKind(
   actor: string | null = null,
 ): Promise<void> {
   const ds = getDataSource();
-  if (kind !== "auto") {
+  // Detach FK referrers for the duration — the wasm engine can't UPDATE an
+  // FK-referenced trait row. See withTraitDereferenced.
+  await withTraitDereferenced(traitId, async () => {
+    if (kind !== "auto") {
+      await ds.exec({
+        sql:
+          "UPDATE config.traits SET trait_kind = ?, trait_kind_overridden = TRUE, " +
+          BUMP +
+          " WHERE id = ?",
+        params: [kind, actor, traitId],
+      });
+      return;
+    }
+    // auto: drop the override, then re-derive.
     await ds.exec({
       sql:
-        "UPDATE config.traits SET trait_kind = ?, trait_kind_overridden = TRUE, " +
+        "UPDATE config.traits SET trait_kind_overridden = FALSE, " +
         BUMP +
         " WHERE id = ?",
-      params: [kind, actor, traitId],
+      params: [actor, traitId],
     });
-    return;
-  }
-  // auto: drop the override, then re-derive.
-  await ds.exec({
-    sql:
-      "UPDATE config.traits SET trait_kind_overridden = FALSE, " +
-      BUMP +
-      " WHERE id = ?",
-    params: [actor, traitId],
+    const trait = await getTrait(traitId);
+    if (trait?.primary_ontology_id) {
+      await enrichTrait(traitId, actor); // re-infers kind (override now off)
+    } else {
+      await ds.exec({
+        sql: "UPDATE config.traits SET trait_kind = NULL WHERE id = ?",
+        params: [traitId],
+      });
+    }
   });
-  const trait = await getTrait(traitId);
-  if (trait?.primary_ontology_id) {
-    await enrichTrait(traitId, actor); // re-infers kind (override now off)
-  } else {
-    await ds.exec({
-      sql: "UPDATE config.traits SET trait_kind = NULL WHERE id = ?",
-      params: [traitId],
-    });
-  }
 }

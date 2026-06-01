@@ -7,7 +7,7 @@
 // (Stage 1 succeeded, Stage 2 failed) and still be useful. The
 // `last_enriched_at` timestamp marks whichever stages we attempted.
 
-import { getTrait, upsertTrait } from "../traitOps";
+import { getTrait, upsertTrait, withTraitDereferenced } from "../traitOps";
 import {
   fetchAncestors,
   fetchTermDetails,
@@ -33,6 +33,17 @@ export interface EnrichResult {
  *  upsertTrait. Idempotent — re-running pulls fresh data from each
  *  source. */
 export async function enrichTrait(
+  traitId: string,
+  actor: string | null = null,
+): Promise<EnrichResult> {
+  // Detach FK referrers while enrichment UPDATEs config.traits (via
+  // upsertTrait) — the wasm engine can't UPDATE an FK-referenced trait row.
+  // Reentrant, so this is safe when called from within setTraitMapping's own
+  // dereference window. See withTraitDereferenced.
+  return withTraitDereferenced(traitId, () => enrichTraitInner(traitId, actor));
+}
+
+async function enrichTraitInner(
   traitId: string,
   actor: string | null = null,
 ): Promise<EnrichResult> {

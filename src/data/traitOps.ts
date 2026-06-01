@@ -127,6 +127,74 @@ export async function getTraitByLabel(
   return rows[0] ? rowToTrait(rows[0]) : null;
 }
 
+// --- FK-referenced UPDATE workaround ---
+
+/** Run `fn` with this trait temporarily detached from the rows that hold a
+ *  foreign key to it (config.mapping_traits / config.source_traits), then
+ *  re-attach them.
+ *
+ *  The bundled duckdb-wasm engine (~1.1) refuses to UPDATE a row that is
+ *  currently referenced by a foreign key — it throws "…still referenced by a
+ *  foreign key in a different table" even when the key value is unchanged.
+ *  Once a constant-scope mapping (or a source) declares a trait, that trait is
+ *  referenced, so every metadata edit (setTraitMapping, enrichTrait,
+ *  setTraitKind → upsertTrait) hit this. updateMapping works around the same
+ *  limit by deleting its FK children before the UPDATE; we do the same here.
+ *
+ *  Re-attach runs in a `finally` so an aborted/failed edit can't strand the
+ *  associations. Reentrant: a nested call captures an empty set (rows already
+ *  detached by the outer call) and restores nothing, so setTraitMapping →
+ *  enrichTrait nesting is safe. Single-user browser DB, so the brief detached
+ *  window is not a concurrency hazard. */
+export async function withTraitDereferenced<T>(
+  traitId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const ds = getDataSource();
+  const [mappingRefs, sourceRefs] = await Promise.all([
+    ds.query<{ mapping_id: string }>({
+      sql: "SELECT mapping_id FROM config.mapping_traits WHERE trait_id = ?",
+      params: [traitId],
+    }),
+    ds.query<{ source_id: string }>({
+      sql: "SELECT source_id FROM config.source_traits WHERE trait_id = ?",
+      params: [traitId],
+    }),
+  ]);
+  if (mappingRefs.length === 0 && sourceRefs.length === 0) {
+    // Not referenced — nothing to detach (also the reentrant fast path).
+    return fn();
+  }
+  await ds.exec({
+    sql: "DELETE FROM config.mapping_traits WHERE trait_id = ?",
+    params: [traitId],
+  });
+  await ds.exec({
+    sql: "DELETE FROM config.source_traits WHERE trait_id = ?",
+    params: [traitId],
+  });
+  try {
+    return await fn();
+  } finally {
+    for (const r of mappingRefs) {
+      await ds.exec({
+        sql:
+          "INSERT INTO config.mapping_traits (mapping_id, trait_id) " +
+          "VALUES (?, ?) ON CONFLICT DO NOTHING",
+        params: [r.mapping_id, traitId],
+      });
+    }
+    for (const r of sourceRefs) {
+      await ds.exec({
+        sql:
+          "INSERT INTO config.source_traits (source_id, trait_id) " +
+          "VALUES (?, ?) ON CONFLICT DO NOTHING",
+        params: [r.source_id, traitId],
+      });
+    }
+  }
+}
+
 // --- WRITES ---
 
 export interface UpsertTraitInput {
@@ -178,6 +246,9 @@ export async function upsertTrait(
   const ds = getDataSource();
   const existing = await getTraitByLabel(input.label);
   if (existing) {
+    // Detach FK referrers around the UPDATE — the wasm engine can't UPDATE an
+    // FK-referenced trait row. Reentrant (safe under enrichTrait's window).
+    await withTraitDereferenced(existing.id, async () => {
     await ds.exec({
       sql:
         "UPDATE config.traits SET " +
@@ -211,6 +282,7 @@ export async function upsertTrait(
         actor,
         existing.id,
       ],
+    });
     });
     return existing.id;
   }
