@@ -3,15 +3,12 @@
 // traits implicated at this locus as a linked list (traverse one hop). Reuses
 // the trait-detail building blocks.
 
-import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
 import {
   getLocus,
   locusGenes,
   locusTraits,
-  type TraitLink,
 } from "../../data/queries/explore";
 import { EVIDENCE_CATEGORIES } from "../../data/static";
 import { EvidenceHeatmap } from "../../components/locus-detail-pane/evidence-heatmap";
@@ -22,18 +19,16 @@ export function LocusDetailPage() {
   const { id: rawId } = useParams<{ id: string }>();
   const locusId = rawId ? decodeURIComponent(rawId) : "";
 
-  // Trait filter for the heatmap: empty = all traits (aggregated).
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const selectedIds = [...selected];
-
   const locusQ = useQuery({
     queryKey: ["explore", "locus", locusId],
     queryFn: () => getLocus(locusId),
     enabled: !!locusId,
   });
+  // Loci are trait-scoped — the heatmap shows the locus's own (same-trait)
+  // evidence. (Cross-trait/pleiotropy is a deferred page-level feature.)
   const genesQ = useQuery({
-    queryKey: ["explore", "locus-genes", locusId, selectedIds.sort().join(",")],
-    queryFn: () => locusGenes(locusId, selectedIds.length ? selectedIds : undefined),
+    queryKey: ["explore", "locus-genes", locusId],
+    queryFn: () => locusGenes(locusId),
     enabled: !!locusId,
   });
   const traitsQ = useQuery({
@@ -44,14 +39,6 @@ export function LocusDetailPage() {
 
   const locus = locusQ.data;
   const traits = traitsQ.data ?? [];
-
-  const toggleTrait = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   if (locusQ.isLoading) {
     return <p className="text-sm text-base-content/40">Loading…</p>;
@@ -93,17 +80,9 @@ export function LocusDetailPage() {
         )}
       </div>
 
-      {/* Candidate genes × evidence, with a trait filter (all = aggregated) */}
+      {/* Candidate genes × evidence (the locus's own trait). */}
       <div className="flex items-center justify-between gap-3 mt-6 mb-2">
         <h2 className="text-sm font-medium text-base-content/60">Candidate genes</h2>
-        {traits.length > 0 && (
-          <TraitFilter
-            traits={traits}
-            selected={selected}
-            onToggle={toggleTrait}
-            onClear={() => setSelected(new Set())}
-          />
-        )}
       </div>
       {genesQ.isLoading ? (
         <p className="text-sm text-base-content/40">Loading…</p>
@@ -133,83 +112,6 @@ export function LocusDetailPage() {
                 {t.n_evidence} evidence
               </span>
             </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Compact trait filter: a trigger showing the current scope, opening a
-// scrollable checklist. Scales to many traits (vs a pill row).
-function TraitFilter({
-  traits,
-  selected,
-  onToggle,
-  onClear,
-}: {
-  traits: TraitLink[];
-  selected: Set<string>;
-  onToggle: (id: string) => void;
-  onClear: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  const label =
-    selected.size === 0
-      ? "All traits"
-      : selected.size === 1
-        ? (traits.find((t) => selected.has(t.trait_id))?.label ?? "1 trait")
-        : `${selected.size} traits`;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1 text-xs border border-base-300 rounded-md px-2 py-1 text-base-content/70 hover:text-base-content cursor-pointer"
-      >
-        {label}
-        <ChevronDown className="size-3.5 text-base-content/40" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-20 min-w-[12rem] max-h-64 overflow-auto border border-base-300 rounded-md bg-base-100 shadow-md py-1 text-sm">
-          <label className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-200/50">
-            <input
-              type="checkbox"
-              className="checkbox checkbox-xs"
-              checked={selected.size === 0}
-              onChange={onClear}
-            />
-            All traits
-          </label>
-          <div className="border-t border-base-300 my-1" />
-          {traits.map((t) => (
-            <label
-              key={t.trait_id}
-              className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-200/50"
-            >
-              <input
-                type="checkbox"
-                className="checkbox checkbox-xs"
-                checked={selected.has(t.trait_id)}
-                onChange={() => onToggle(t.trait_id)}
-              />
-              <span className="flex-1 min-w-0 truncate">{t.label}</span>
-              <span className="text-xs text-base-content/40 tabular-nums shrink-0">
-                {t.n_evidence}
-              </span>
-            </label>
           ))}
         </div>
       )}

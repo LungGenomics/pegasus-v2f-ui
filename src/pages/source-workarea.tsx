@@ -1267,11 +1267,19 @@ function MappingCard({
     !needsCategory || (draft.evidence_category ?? "").trim() !== "";
   const hasScore =
     draft.target !== "evidence" || (draft.score_column ?? "").trim() !== "";
+  // Loci are trait-scoped — a loci mapping must declare a resolvable trait:
+  // constant with ≥1 trait, or column with a trait column.
+  const hasLociTrait =
+    draft.target !== "loci" ||
+    (draft.trait_scope === "constant" && (draft.trait_ids?.length ?? 0) > 0) ||
+    (draft.trait_scope === "column" &&
+      (draft.trait_column?.raw_column ?? "").trim() !== "");
   const canSave =
     hasSourceTag &&
     hasAllRequired &&
     hasCategory &&
     hasScore &&
+    hasLociTrait &&
     (isNew || isDirty);
 
   const onChange = (patch: Partial<ConfigMapping>) =>
@@ -1350,7 +1358,9 @@ function MappingCard({
         ? "Evidence category is required"
         : !hasScore
           ? "Score column is required for evidence mappings"
-          : undefined;
+          : !hasLociTrait
+            ? "A loci mapping must declare a trait (constant or column)"
+            : undefined;
 
   return (
     <div className="border border-base-300 bg-base-200/60 rounded-lg p-3 space-y-3">

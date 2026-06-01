@@ -69,7 +69,7 @@ async function biotypeFilter(): Promise<string> {
  *  update. Assumes main.gene_reference is loaded (ensureGeneReference). */
 function candidatesCte(filter: string): string {
   return (
-    `SELECT DISTINCT l.locus_id, g.gene_symbol ` +
+    `SELECT DISTINCT l.locus_id, l.trait_id, g.gene_symbol ` +
     `FROM main.loci l ` +
     `JOIN main.gene_reference g ` +
     `  ON g.chromosome = l.chromosome ` +
@@ -123,7 +123,9 @@ export async function buildLocusEvidenceView(): Promise<void> {
     // EVERY candidate gene of that locus (a bare variant implicates the whole
     // locus, can't name the gene). match_type='position'.
     `var_ev AS (` +
-    `  SELECT c.locus_id, ${varCols}, 'position' AS match_type ` +
+    `  SELECT c.locus_id, ${varCols}, l.trait_id AS locus_trait_id, ` +
+    `         (e.trait_id IS DISTINCT FROM l.trait_id) AS is_cross_trait, ` +
+    `         'position' AS match_type ` +
     `  FROM main.loci l ` +
     `  JOIN main.evidence e ` +
     `    ON e.chromosome = l.chromosome ` +
@@ -139,7 +141,9 @@ export async function buildLocusEvidenceView(): Promise<void> {
     // Gene-centric evidence: matched to a locus by gene membership in the
     // candidate set. match_type='gene'.
     `gene_ev AS (` +
-    `  SELECT c.locus_id, ${geneCols}, 'gene' AS match_type ` +
+    `  SELECT c.locus_id, ${geneCols}, c.trait_id AS locus_trait_id, ` +
+    `         (e.trait_id IS DISTINCT FROM c.trait_id) AS is_cross_trait, ` +
+    `         'gene' AS match_type ` +
     `  FROM cand c ` +
     `  JOIN main.evidence e ON e.gene_symbol = c.gene_symbol ` +
     `    AND (e.centric IS NULL OR e.centric <> 'variant')` +
@@ -148,14 +152,19 @@ export async function buildLocusEvidenceView(): Promise<void> {
     `  SELECT * FROM var_ev UNION ALL SELECT * FROM gene_ev` +
     `), ` +
     `stubs AS (` +
-    `  SELECT c.locus_id, ${stubCols}, 'candidate' AS match_type ` +
+    `  SELECT c.locus_id, ${stubCols}, c.trait_id AS locus_trait_id, ` +
+    `         FALSE AS is_cross_trait, 'candidate' AS match_type ` +
     `  FROM cand c ` +
+    // Stub a candidate gene only when it has no SAME-trait evidence — a gene
+    // whose only evidence is cross-trait still shows as a neighborhood
+    // candidate in the same-trait view.
     `  LEFT JOIN ev ON ev.locus_id = c.locus_id AND ev.gene_symbol = c.gene_symbol ` +
+    `    AND NOT ev.is_cross_trait ` +
     `  WHERE ev.locus_id IS NULL` +
     `) ` +
-    `SELECT locus_id, ${evColsBare}, match_type FROM ev ` +
+    `SELECT locus_id, ${evColsBare}, locus_trait_id, is_cross_trait, match_type FROM ev ` +
     `UNION ALL ` +
-    `SELECT locus_id, ${evColsBare}, match_type FROM stubs`;
+    `SELECT locus_id, ${evColsBare}, locus_trait_id, is_cross_trait, match_type FROM stubs`;
 
   await ds.exec({ sql });
 }

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { X, Pencil } from "lucide-react";
+import { X, Pencil, SlidersHorizontal } from "lucide-react";
 import { useSyncSession } from "../../hooks/useSyncSession";
 import { TraitEditor } from "../../components/trait-editor/trait-editor";
 import {
@@ -90,6 +90,143 @@ function secondaryText(l: LocusRow, mode: LabelMode): string {
   return mode === "coords" ? cytobandText(l) : coordText(l);
 }
 
+// Filters popover for the loci header: label mode (+ by-category sub-select)
+// and the definition-source filter. Keeps the header to one button; an
+// active-count badge surfaces non-default state. (Track controls stay separate.)
+function LociFilters({
+  labelMode,
+  onLabelMode,
+  scoreCategory,
+  onScoreCategory,
+  categories,
+  sources,
+  selectedSources,
+  onSelectedSources,
+}: {
+  labelMode: LabelMode;
+  onLabelMode: (m: LabelMode) => void;
+  scoreCategory: string | null;
+  onScoreCategory: (c: string | null) => void;
+  categories: string[];
+  sources: string[];
+  selectedSources: string[];
+  onSelectedSources: (s: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const toggleSource = (s: string) =>
+    onSelectedSources(
+      selectedSources.includes(s)
+        ? selectedSources.filter((x) => x !== s)
+        : [...selectedSources, s],
+    );
+
+  // A single source can't be filtered to anything — show it, but inert.
+  const multiSource = sources.length > 1;
+
+  return (
+    <div ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="input input-bordered input-xs inline-flex items-center gap-1.5 w-auto text-base-content/70 hover:bg-base-200 cursor-pointer"
+      >
+        <SlidersHorizontal className="size-3.5" />
+        Filters
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-30 w-60 border border-base-300 rounded-lg bg-base-100 shadow-lg p-3 space-y-3 text-sm">
+          <label className="block">
+            <span className="text-xs text-base-content/50">Label loci by</span>
+            <select
+              className="select select-bordered select-xs w-full mt-1"
+              value={labelMode}
+              onChange={(e) => onLabelMode(e.target.value as LabelMode)}
+            >
+              {LABEL_MODES.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {labelMode === "top_gene_category" && (
+            <label className="block">
+              <span className="text-xs text-base-content/50">Category</span>
+              <select
+                className="select select-bordered select-xs w-full mt-1 font-mono"
+                value={scoreCategory ?? ""}
+                onChange={(e) => onScoreCategory(e.target.value || null)}
+                disabled={categories.length === 0}
+              >
+                {categories.length === 0 ? (
+                  <option value="">no categories</option>
+                ) : (
+                  categories.map((c) => (
+                    <option key={c} value={c}>
+                      {EVIDENCE_CATEGORIES[c] ?? c}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          )}
+
+          {sources.length > 0 && (
+            <div className="border-t border-base-200 pt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-base-content/50">
+                  Definition sources
+                </span>
+                {multiSource && selectedSources.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-base-content/40 hover:text-base-content"
+                    onClick={() => onSelectedSources([])}
+                  >
+                    all
+                  </button>
+                )}
+              </div>
+              <div className="mt-1 space-y-0.5 max-h-40 overflow-y-auto">
+                {sources.map((s) => (
+                  <label
+                    key={s}
+                    className={`flex items-center gap-2 rounded px-1 py-0.5 ${
+                      multiSource ? "cursor-pointer hover:bg-base-200/40" : "cursor-default"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-xs"
+                      checked={
+                        selectedSources.length === 0 || selectedSources.includes(s)
+                      }
+                      disabled={!multiSource}
+                      onChange={() => toggleSource(s)}
+                    />
+                    <span className="font-mono text-xs truncate">{s}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Trait-detail content, rendered inside the Traits page for the selected
 // trait. (No standalone route — Traits owns trait selection via ?trait=.)
 export function TraitDetail({ traitId }: { traitId: string }) {
@@ -102,9 +239,12 @@ export function TraitDetail({ traitId }: { traitId: string }) {
     queryFn: () => getTrait(traitId),
     enabled: !!traitId,
   });
+  // Definition-source filter (loci-mapping source_tags owning this trait's
+  // loci). Empty = all sources. Lives in the Filters popover.
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const lociQ = useQuery({
-    queryKey: ["explore", "trait-loci", traitId],
-    queryFn: () => traitLoci(traitId),
+    queryKey: ["explore", "trait-loci", traitId, selectedSources],
+    queryFn: () => traitLoci(traitId, { sourceTags: selectedSources }),
     enabled: !!traitId,
   });
   const tagsQ = useQuery({
@@ -411,40 +551,16 @@ export function TraitDetail({ traitId }: { traitId: string }) {
             </button>
           )}
         </label>
-        <label className="inline-flex items-center gap-1 text-xs text-base-content/60">
-          Label
-          <select
-            className="select select-bordered select-xs"
-            value={labelMode}
-            onChange={(e) => setLabelMode(e.target.value as LabelMode)}
-            title="How loci are labeled on the track and list"
-          >
-            {LABEL_MODES.map(({ value, label }) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {labelMode === "top_gene_category" && (
-          <select
-            className="select select-bordered select-xs font-mono"
-            value={scoreCategory ?? ""}
-            onChange={(e) => setScoreCategory(e.target.value || null)}
-            disabled={categories.length === 0}
-            title="Evidence category for the top-gene label"
-          >
-            {categories.length === 0 ? (
-              <option value="">no categories</option>
-            ) : (
-              categories.map((c) => (
-                <option key={c} value={c}>
-                  {EVIDENCE_CATEGORIES[c] ?? c}
-                </option>
-              ))
-            )}
-          </select>
-        )}
+        <LociFilters
+          labelMode={labelMode}
+          onLabelMode={setLabelMode}
+          scoreCategory={scoreCategory}
+          onScoreCategory={setScoreCategory}
+          categories={categories}
+          sources={sourceTags}
+          selectedSources={selectedSources}
+          onSelectedSources={setSelectedSources}
+        />
         {chromQ.data && (
           <div className="ml-auto">
             <TrackControls
@@ -620,18 +736,20 @@ function LociPane({
   );
 }
 
-function LocusDetail({ locus, traitId }: { locus: LocusRow; traitId: string }) {
+function LocusDetail({ locus }: { locus: LocusRow; traitId: string }) {
+  // Same-trait evidence only (the locus's own). Cross-trait/pleiotropy is a
+  // deferred page-level feature, not a per-locus toggle.
   const genesQ = useQuery({
-    queryKey: ["explore", "locus-genes", locus.locus_id, traitId],
-    queryFn: () => locusGenes(locus.locus_id, [traitId]),
+    queryKey: ["explore", "locus-genes", locus.locus_id],
+    queryFn: () => locusGenes(locus.locus_id),
   });
 
   return (
     <div className="p-4">
-      <h4 className="text-sm font-medium text-base-content/70 font-mono">
+      <h4 className="text-sm font-medium text-base-content/70 font-mono mb-1">
         {locus.locus_name || locus.locus_id}
       </h4>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/60 mt-1 mb-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/60 mb-3">
         <span>
           {formatCoordinate(
             locus.chromosome ?? "",

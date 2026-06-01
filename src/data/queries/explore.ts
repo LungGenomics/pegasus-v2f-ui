@@ -87,7 +87,9 @@ export async function listTraits(): Promise<TraitRow[]> {
       "       COUNT(DISTINCT le.gene_symbol) AS n_genes, " +
       "       COUNT(le.locus_id) FILTER (WHERE le.match_type <> 'candidate') AS n_evidence " +
       "FROM config.traits t " +
-      "LEFT JOIN main.locus_evidence le ON le.trait_id = t.id " +
+      // Loci are trait-scoped — count the trait's OWN loci/evidence (same-trait).
+      "LEFT JOIN main.locus_evidence le " +
+      "  ON le.locus_trait_id = t.id AND NOT le.is_cross_trait " +
       "GROUP BY t.id, t.label ORDER BY n_loci DESC, t.label",
   });
 }
@@ -150,18 +152,24 @@ export async function getTrait(traitId: string): Promise<TraitDetail | null> {
 
 /** Loci implicated for a trait (have ≥1 evidence row for it). Carries
  *  source_tag for multi-source coloring on the track. */
-export async function traitLoci(traitId: string): Promise<LocusRow[]> {
+export async function traitLoci(
+  traitId: string,
+  opts: { sourceTags?: string[] } = {},
+): Promise<LocusRow[]> {
   const ds = getDataSource();
-  // EXISTS (one row per locus) rather than JOIN+DISTINCT so the two correlated
-  // subqueries below run once per locus, not once per evidence row.
-  //   top_gene    — the GLOBAL-RANK #1 gene for THIS trait at the locus: most
-  //                 distinct evidence categories, ties broken by summed score
-  //                 (then name). Mirrors the evidence-heatmap "#" rank. NULL
-  //                 when the locus has no non-candidate evidence for the trait.
+  // Loci are trait-scoped: a locus is OWNED by a trait (loci.trait_id), set by
+  // its definition source. We list loci WHERE l.trait_id = ? — not "loci that
+  // have evidence for the trait" — so an FEV1 GWAS's loci never appear under
+  // another trait. Optionally restrict to chosen definition sources.
+  //   top_gene    — GLOBAL-RANK #1 gene from the locus's SAME-TRAIT evidence
+  //                 (most distinct categories, score-sum tiebreak). NULL when
+  //                 no same-trait non-candidate evidence.
   //   nearest_gene— ARG_MIN(gene, distance) from the lead/source variant
-  //                 (midpoint fallback) to each candidate gene's body. Genes
-  //                 come from locus_evidence (already biotype-filtered + window-
-  //                 mapped to the locus), joined to gene_reference for coords.
+  //                 (midpoint fallback) to each candidate gene's body.
+  const sourceTags = opts.sourceTags?.filter((s) => s.trim() !== "") ?? [];
+  const sourceFilter = sourceTags.length
+    ? ` AND l.source_tag IN (${sourceTags.map(() => "?").join(", ")})`
+    : "";
   return ds.query<LocusRow>({
     sql:
       "SELECT l.locus_id, l.locus_name, l.chromosome, " +
@@ -172,7 +180,7 @@ export async function traitLoci(traitId: string): Promise<LocusRow[]> {
       "                 COUNT(DISTINCT le2.evidence_category) AS ncat, " +
       "                 SUM(TRY_CAST(le2.score AS DOUBLE)) AS ssum " +
       "            FROM main.locus_evidence le2 " +
-      "           WHERE le2.locus_id = l.locus_id AND le2.trait_id = ? " +
+      "           WHERE le2.locus_id = l.locus_id AND NOT le2.is_cross_trait " +
       "             AND le2.match_type <> 'candidate' " +
       "             AND le2.gene_symbol IS NOT NULL " +
       "           GROUP BY le2.gene_symbol " +
@@ -186,10 +194,9 @@ export async function traitLoci(traitId: string): Promise<LocusRow[]> {
       "          JOIN main.gene_reference g ON g.gene_symbol = lg.gene_symbol " +
       "         WHERE g.chromosome = l.chromosome) AS nearest_gene " +
       "FROM main.loci l " +
-      "WHERE EXISTS (SELECT 1 FROM main.locus_evidence le " +
-      "              WHERE le.locus_id = l.locus_id AND le.trait_id = ?) " +
+      "WHERE l.trait_id = ?" + sourceFilter + " " +
       "ORDER BY l.chromosome, l.start_position",
-    params: [traitId, traitId],
+    params: [traitId, ...sourceTags],
   });
 }
 
@@ -202,7 +209,7 @@ export async function traitEvidenceCategories(
   const rows = await ds.query<{ evidence_category: string }>({
     sql:
       "SELECT DISTINCT evidence_category FROM main.locus_evidence " +
-      "WHERE trait_id = ? AND match_type <> 'candidate' " +
+      "WHERE locus_trait_id = ? AND NOT is_cross_trait AND match_type <> 'candidate' " +
       "  AND evidence_category IS NOT NULL AND evidence_category <> '' " +
       "ORDER BY evidence_category",
     params: [traitId],
@@ -228,7 +235,7 @@ export async function traitLocusCategoryCoverage(
       "SELECT locus_id, evidence_category, " +
       "       COUNT(DISTINCT gene_symbol) AS n_genes " +
       "FROM main.locus_evidence " +
-      "WHERE trait_id = ? AND match_type <> 'candidate' " +
+      "WHERE locus_trait_id = ? AND NOT is_cross_trait AND match_type <> 'candidate' " +
       "  AND gene_symbol IS NOT NULL " +
       "  AND evidence_category IS NOT NULL AND evidence_category <> '' " +
       "GROUP BY locus_id, evidence_category",
@@ -263,7 +270,8 @@ export async function traitLociTopGeneByCategory(
       "           ORDER BY SUM(TRY_CAST(le.score AS DOUBLE)) DESC NULLS LAST, " +
       "                    le.gene_symbol) AS rn " +
       "    FROM main.locus_evidence le " +
-      "   WHERE le.trait_id = ? AND le.evidence_category = ? " +
+      "   WHERE le.locus_trait_id = ? AND NOT le.is_cross_trait " +
+      "     AND le.evidence_category = ? " +
       "     AND le.match_type <> 'candidate' AND le.gene_symbol IS NOT NULL " +
       "   GROUP BY le.locus_id, le.gene_symbol " +
       ") WHERE rn = 1",
@@ -272,15 +280,14 @@ export async function traitLociTopGeneByCategory(
   return new Map(rows.map((r) => [r.locus_id, r.gene_symbol]));
 }
 
-/** Distinct loci-mapping sources whose loci this trait touches — for the
- *  track/list color legend. */
+/** Loci-definition sources that OWN loci for this trait (loci.trait_id) — the
+ *  trait's "studies". Drives the track/list color legend and the source filter. */
 export async function traitSourceTags(traitId: string): Promise<string[]> {
   const ds = getDataSource();
   const rows = await ds.query<{ source_tag: string }>({
     sql:
-      "SELECT DISTINCT l.source_tag FROM main.loci l " +
-      "JOIN main.locus_evidence le ON le.locus_id = l.locus_id " +
-      "WHERE le.trait_id = ? AND l.source_tag IS NOT NULL ORDER BY l.source_tag",
+      "SELECT DISTINCT source_tag FROM main.loci " +
+      "WHERE trait_id = ? AND source_tag IS NOT NULL ORDER BY source_tag",
     params: [traitId],
   });
   return rows.map((r) => r.source_tag);
@@ -309,7 +316,8 @@ export async function traitSources(traitId: string): Promise<TraitSourceRow[]> {
       "       COUNT(*) AS n_evidence, " +
       "       COUNT(DISTINCT gene_symbol) AS n_genes " +
       "FROM main.locus_evidence " +
-      "WHERE trait_id = ? AND match_type <> 'candidate' AND source_tag IS NOT NULL " +
+      "WHERE locus_trait_id = ? AND NOT is_cross_trait " +
+      "  AND match_type <> 'candidate' AND source_tag IS NOT NULL " +
       "GROUP BY source_tag ORDER BY n_evidence DESC",
     params: [traitId],
   });
@@ -323,19 +331,20 @@ export async function traitSources(traitId: string): Promise<TraitSourceRow[]> {
   }));
 }
 
-/** Build LocusGene[] for the evidence heatmap at one locus. With `traitIds`,
- *  real evidence is scoped to those traits (candidate stubs are always
- *  included — neighborhood genes belong to the locus, not a trait). Empty/
- *  omitted = all evidence at the locus (every trait). Genes whose only rows
- *  are candidate stubs come back with an empty evidence[] = neighborhood
- *  genes. */
+/** Build LocusGene[] for the evidence heatmap at one locus. The locus is
+ *  trait-scoped, so by default we show its SAME-TRAIT evidence (NOT
+ *  is_cross_trait) plus candidate stubs (neighborhood genes). With
+ *  `crossTrait`, also include cross-trait (pleiotropy) evidence — other traits
+ *  with signals overlapping this locus. Genes whose only rows are candidate
+ *  stubs come back with an empty evidence[] = neighborhood genes. */
 export async function locusGenes(
   locusId: string,
-  traitIds?: string[],
+  opts: { crossTrait?: boolean } = {},
 ): Promise<LocusGene[]> {
   const ds = getDataSource();
-  const scoped = traitIds && traitIds.length > 0;
-  const placeholders = scoped ? traitIds!.map(() => "?").join(", ") : "";
+  const crossClause = opts.crossTrait
+    ? ""
+    : "  AND (match_type = 'candidate' OR NOT is_cross_trait) ";
   const rows = await ds.query<{
     gene_symbol: string;
     match_type: string;
@@ -356,10 +365,8 @@ export async function locusGenes(
       "       ancestry, sex " +
       "FROM main.locus_evidence " +
       "WHERE locus_id = ? AND gene_symbol IS NOT NULL " +
-      (scoped
-        ? `  AND (match_type = 'candidate' OR trait_id IN (${placeholders}))`
-        : ""),
-    params: scoped ? [locusId, ...traitIds!] : [locusId],
+      crossClause,
+    params: [locusId],
   });
 
   const byGene = new Map<string, LocusGene>();

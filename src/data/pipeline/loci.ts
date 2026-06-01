@@ -24,6 +24,7 @@ import type { ConfigMapping } from "../../api/types";
 const MAIN_LOCI_DDL = `CREATE TABLE IF NOT EXISTS main.loci (
   locus_id          VARCHAR PRIMARY KEY,
   source_tag        VARCHAR,
+  trait_id          UUID,
   locus_name        VARCHAR,
   chromosome        VARCHAR,
   start_position    BIGINT,
@@ -71,9 +72,13 @@ async function buildOne(
   });
 
   // Window + gap-and-island merge in one CTE chain over the loci mapping's
-  // own projection (chromosome/position/rsid/pvalue). ARG_MIN picks the
-  // rsid/position of the lowest-pvalue variant per merged group as the lead;
-  // when every pvalue is NULL, ARG_MIN returns NULL → lead stays NULL.
+  // own projection (chromosome/position/rsid/pvalue/trait_id). Loci are
+  // trait-scoped: windowing/merging PARTITION BY trait_id so signals from
+  // different traits (a multi-trait source) never merge into a shared locus.
+  // ARG_MIN picks the rsid/position of the lowest-pvalue variant per merged
+  // group as the lead; when every pvalue is NULL, ARG_MIN returns NULL → lead
+  // stays NULL. Variants with no trait_id are dropped (trait is required for
+  // loci mappings).
   const sql = `
     WITH variants AS (
       -- TRY_CAST so dirty sentinels (e.g. position 'NA') become NULL and drop
@@ -81,41 +86,44 @@ async function buildOne(
       SELECT chromosome,
              TRY_CAST(position AS BIGINT) AS position,
              CAST(rsid AS VARCHAR) AS rsid,
-             TRY_CAST(pvalue AS DOUBLE) AS pvalue
+             TRY_CAST(pvalue AS DOUBLE) AS pvalue,
+             trait_id
       FROM (${variantsSql}) _proj
       WHERE chromosome IS NOT NULL
         -- Drop dirty chromosome sentinels ('NA', 'N/A', '.', '') — they'd
         -- otherwise materialize an unplottable "chrNA" locus.
         AND UPPER(TRIM(CAST(chromosome AS VARCHAR))) NOT IN ('NA', 'N/A', 'NULL', '.', '')
         AND TRY_CAST(position AS BIGINT) IS NOT NULL
+        AND trait_id IS NOT NULL
     ),
     windows AS (
-      SELECT chromosome, position, rsid, pvalue,
+      SELECT chromosome, position, rsid, pvalue, trait_id,
              GREATEST(0, position - ${windowBp}) AS w_start,
              position + ${windowBp} AS w_end
       FROM variants
     ),
     gap_flag AS (
-      SELECT chromosome, position, rsid, pvalue, w_start, w_end,
+      SELECT chromosome, position, rsid, pvalue, trait_id, w_start, w_end,
              CASE
-               WHEN LAG(chromosome) OVER (ORDER BY chromosome, w_start) = chromosome
-                 AND w_start <= LAG(w_end) OVER (ORDER BY chromosome, w_start) + ${mergeBp}
+               WHEN LAG(chromosome) OVER (PARTITION BY trait_id ORDER BY chromosome, w_start) = chromosome
+                 AND w_start <= LAG(w_end) OVER (PARTITION BY trait_id ORDER BY chromosome, w_start) + ${mergeBp}
                THEN 0 ELSE 1
              END AS is_new_locus
       FROM windows
     ),
     grouped AS (
-      SELECT chromosome, position, rsid, pvalue, w_start, w_end,
-             SUM(is_new_locus) OVER (ORDER BY chromosome, w_start) AS grp
+      SELECT chromosome, position, rsid, pvalue, trait_id, w_start, w_end,
+             SUM(is_new_locus) OVER (PARTITION BY trait_id ORDER BY chromosome, w_start) AS grp
       FROM gap_flag
     )
     INSERT INTO main.loci
-      (locus_id, source_tag, locus_name, chromosome, start_position,
+      (locus_id, source_tag, trait_id, locus_name, chromosome, start_position,
        end_position, lead_rsid, lead_position, lead_pvalue, n_signals,
        n_candidate_genes)
     SELECT
-      ? || '_' || chromosome || '_' || grp AS locus_id,
+      ? || '_' || SUBSTR(CAST(trait_id AS VARCHAR), 1, 8) || '_' || chromosome || '_' || grp AS locus_id,
       ? AS source_tag,
+      trait_id,
       chromosome || ':' ||
         CAST(MIN(w_start) AS VARCHAR) || '-' || CAST(MAX(w_end) AS VARCHAR) AS locus_name,
       chromosome,
@@ -127,7 +135,7 @@ async function buildOne(
       COUNT(*) AS n_signals,
       0 AS n_candidate_genes
     FROM grouped
-    GROUP BY chromosome, grp
+    GROUP BY trait_id, chromosome, grp
   `;
   await ds.exec({
     sql,
@@ -207,8 +215,10 @@ async function nameLociByCytoband(): Promise<void> {
 }
 
 /** The loci mapping's canonical projection (its variants), or null if it
- *  can't project. Usually one SELECT; a constant multi-trait mapping would
- *  fan out, but loci only read chromosome/position so the UNION is harmless. */
+ *  can't project. Each projection carries a trait_id (constant → one SELECT per
+ *  trait with a literal id; column → one SELECT resolving trait_id per row), and
+ *  buildOne windows/merges PARTITION BY trait_id — so a multi-trait source
+ *  yields independent per-trait loci. */
 function lociVariantsSql(
   mapping: ConfigMapping,
   pipeline: string,

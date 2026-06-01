@@ -356,6 +356,111 @@ const TRAIT_SCOPES: readonly TraitScopeUI[] = [
 const TARGETS: readonly MappingTarget[] = ["evidence", "loci"] as const;
 const CENTRICS: readonly MappingCentric[] = ["gene", "variant"] as const;
 
+// Trait scope (none/constant/column) + the constant trait picker / column refs.
+// Shared by evidence and loci targets — loci are trait-scoped too (a locus
+// belongs to a definition source + trait).
+function TraitScopeFields({
+  draft,
+  onChange,
+  traits,
+  onCreateTrait,
+  transformedColumns,
+  traitScopeUI,
+  setTraitScope,
+}: {
+  draft: ConfigMapping;
+  onChange: (patch: Partial<ConfigMapping>) => void;
+  traits: ConfigTrait[];
+  onCreateTrait: (label: string) => Promise<string>;
+  transformedColumns: string[];
+  traitScopeUI: TraitScopeUI;
+  setTraitScope: (s: TraitScopeUI) => void;
+}) {
+  return (
+    <>
+      <div>
+        <FieldLabel>Trait scope</FieldLabel>
+        <SegmentedToggle
+          value={traitScopeUI}
+          options={TRAIT_SCOPES}
+          onChange={setTraitScope}
+        />
+      </div>
+
+      {traitScopeUI === "constant" && (
+        <div>
+          <FieldLabel>Traits</FieldLabel>
+          <TraitPicker
+            value={draft.trait_ids ?? []}
+            onChange={(v) =>
+              onChange({ trait_ids: v.length > 0 ? v : undefined })
+            }
+            traits={traits}
+            onCreateTrait={onCreateTrait}
+          />
+        </div>
+      )}
+
+      {traitScopeUI === "column" && (
+        <div className="space-y-2">
+          <div>
+            <FieldLabel>Trait column</FieldLabel>
+            <ColumnCombobox
+              value={draft.trait_column?.raw_column ?? ""}
+              onChange={(raw) =>
+                onChange({
+                  trait_column: raw
+                    ? {
+                        raw_column: raw,
+                        ...(draft.trait_column?.trait_id_lookup
+                          ? {
+                              trait_id_lookup:
+                                draft.trait_column.trait_id_lookup,
+                            }
+                          : {}),
+                      }
+                    : undefined,
+                })
+              }
+              columns={transformedColumns}
+              placeholder="column with trait label"
+              invalid={isUnknownColumn(
+                draft.trait_column?.raw_column ?? "",
+                transformedColumns,
+              )}
+            />
+          </div>
+          <div>
+            <FieldLabel>
+              Trait ID lookup{" "}
+              <span className="text-base-content/40">(optional)</span>
+            </FieldLabel>
+            <ColumnCombobox
+              value={draft.trait_column?.trait_id_lookup ?? ""}
+              onChange={(lookup) =>
+                onChange({
+                  trait_column: draft.trait_column?.raw_column
+                    ? {
+                        raw_column: draft.trait_column.raw_column,
+                        ...(lookup ? { trait_id_lookup: lookup } : {}),
+                      }
+                    : draft.trait_column,
+                })
+              }
+              columns={transformedColumns}
+              placeholder="column with trait ID"
+              invalid={isUnknownColumn(
+                draft.trait_column?.trait_id_lookup ?? "",
+                transformedColumns,
+              )}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function MappingCardForm({
   draft,
   onChange,
@@ -511,85 +616,15 @@ export function MappingCardForm({
             />
           </div>
 
-          <div>
-            <FieldLabel>Trait scope</FieldLabel>
-            <SegmentedToggle
-              value={traitScopeUI}
-              options={TRAIT_SCOPES}
-              onChange={setTraitScope}
-            />
-          </div>
-
-          {traitScopeUI === "constant" && (
-            <div>
-              <FieldLabel>Traits</FieldLabel>
-              <TraitPicker
-                value={draft.trait_ids ?? []}
-                onChange={(v) =>
-                  onChange({ trait_ids: v.length > 0 ? v : undefined })
-                }
-                traits={traits}
-                onCreateTrait={onCreateTrait}
-              />
-            </div>
-          )}
-
-          {traitScopeUI === "column" && (
-            <div className="space-y-2">
-              <div>
-                <FieldLabel>Trait column</FieldLabel>
-                <ColumnCombobox
-                  value={draft.trait_column?.raw_column ?? ""}
-                  onChange={(raw) =>
-                    onChange({
-                      trait_column: raw
-                        ? {
-                            raw_column: raw,
-                            ...(draft.trait_column?.trait_id_lookup
-                              ? {
-                                  trait_id_lookup:
-                                    draft.trait_column.trait_id_lookup,
-                                }
-                              : {}),
-                          }
-                        : undefined,
-                    })
-                  }
-                  columns={transformedColumns}
-                  placeholder="column with trait label"
-                  invalid={isUnknownColumn(
-                    draft.trait_column?.raw_column ?? "",
-                    transformedColumns,
-                  )}
-                />
-              </div>
-              <div>
-                <FieldLabel>
-                  Trait ID lookup{" "}
-                  <span className="text-base-content/40">(optional)</span>
-                </FieldLabel>
-                <ColumnCombobox
-                  value={draft.trait_column?.trait_id_lookup ?? ""}
-                  onChange={(lookup) =>
-                    onChange({
-                      trait_column: draft.trait_column?.raw_column
-                        ? {
-                            raw_column: draft.trait_column.raw_column,
-                            ...(lookup ? { trait_id_lookup: lookup } : {}),
-                          }
-                        : draft.trait_column,
-                    })
-                  }
-                  columns={transformedColumns}
-                  placeholder="column with trait ID"
-                  invalid={isUnknownColumn(
-                    draft.trait_column?.trait_id_lookup ?? "",
-                    transformedColumns,
-                  )}
-                />
-              </div>
-            </div>
-          )}
+          <TraitScopeFields
+            draft={draft}
+            onChange={onChange}
+            traits={traits}
+            onCreateTrait={onCreateTrait}
+            transformedColumns={transformedColumns}
+            traitScopeUI={traitScopeUI}
+            setTraitScope={setTraitScope}
+          />
         </>
       ) : (
         <>
@@ -629,6 +664,17 @@ export function MappingCardForm({
               className="input input-bordered input-sm font-mono w-full"
             />
           </label>
+
+          {/* Loci are trait-scoped — a loci mapping must declare its trait(s). */}
+          <TraitScopeFields
+            draft={draft}
+            onChange={onChange}
+            traits={traits}
+            onCreateTrait={onCreateTrait}
+            transformedColumns={transformedColumns}
+            traitScopeUI={traitScopeUI}
+            setTraitScope={setTraitScope}
+          />
         </>
       )}
 
