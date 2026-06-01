@@ -10,7 +10,7 @@
 import { useRef, useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import { CANONICAL_FIELDS, requiredFields } from "../data/canonicalFields";
-import { EVIDENCE_CATEGORIES } from "../data/static";
+import { EVIDENCE_CATEGORIES, CATEGORY_VALUE_LABELS } from "../data/static";
 import { ColumnCombobox } from "./column-combobox";
 import type {
   ConfigMapping,
@@ -117,11 +117,10 @@ function FieldsEditor({
   // Canonical fields not yet used — the next-add picker defaults to the
   // first unused one so users don't repeatedly add the same row.
   const used = new Set(value.map((f) => f.canonical_field));
-  // `score` is no longer a column alias — it's set via the per-mapping score
-  // expression (Option B). Exclude it from the add picker.
+  // Values (primary/secondary) are set via their own inputs, not the Fields
+  // editor — CANONICAL_FIELDS holds only match keys + attributes now.
   const firstUnused =
-    CANONICAL_FIELDS.find((c) => c !== "score" && !used.has(c)) ??
-    CANONICAL_FIELDS.find((c) => c !== "score")!;
+    CANONICAL_FIELDS.find((c) => !used.has(c)) ?? CANONICAL_FIELDS[0]!;
 
   const update = (i: number, patch: Partial<MappingField>) =>
     onChange(value.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
@@ -143,11 +142,7 @@ function FieldsEditor({
               className="select select-bordered select-sm font-mono w-[40%] disabled:opacity-100"
               title={req ? "Required for this target" : undefined}
             >
-              {CANONICAL_FIELDS.filter(
-                // Hide `score` (set via the score expression), unless this row
-                // is already a legacy score alias so its value still renders.
-                (c) => c !== "score" || c === f.canonical_field,
-              ).map((c) => (
+              {CANONICAL_FIELDS.map((c) => (
                 <option key={c} value={c}>
                   {c}
                   {isRequired(c) ? " *" : ""}
@@ -476,6 +471,23 @@ export function MappingCardForm({
 }) {
   const target = draft.target;
   const traitScopeUI: TraitScopeUI = draft.trait_scope ?? "none";
+  // Suggested value labels for the chosen category (prefill / placeholder).
+  const catLabels = draft.evidence_category
+    ? CATEGORY_VALUE_LABELS[draft.evidence_category]
+    : undefined;
+
+  // Picking a category prefills any *empty* value label with the category's
+  // default (editable after). Stored label = displayed label, so it stays
+  // honest even if you map a non-standard column.
+  const setCategory = (cat: string | undefined) => {
+    const def = cat ? CATEGORY_VALUE_LABELS[cat] : undefined;
+    const patch: Partial<ConfigMapping> = { evidence_category: cat };
+    if (!draft.primary_value_label && def?.primary)
+      patch.primary_value_label = def.primary;
+    if (!draft.secondary_value_label && def?.secondary)
+      patch.secondary_value_label = def.secondary;
+    onChange(patch);
+  };
 
   const setTarget = (t: MappingTarget) => {
     // Clear the irrelevant sub-fields so we don't carry over stale loci
@@ -491,7 +503,10 @@ export function MappingCardForm({
       onChange({
         target: t,
         evidence_category: undefined,
-        score_column: undefined,
+        primary_value_column: undefined,
+        secondary_value_column: undefined,
+        primary_value_label: undefined,
+        secondary_value_label: undefined,
         centric: undefined,
         trait_scope: undefined,
         trait_ids: undefined,
@@ -561,11 +576,7 @@ export function MappingCardForm({
             <FieldLabel>Evidence category</FieldLabel>
             <select
               value={draft.evidence_category ?? ""}
-              onChange={(e) =>
-                onChange({
-                  evidence_category: e.target.value || undefined,
-                })
-              }
+              onChange={(e) => setCategory(e.target.value || undefined)}
               // PEGASUS controlled vocab — codes mirror EVIDENCE_CATEGORIES in
               // cli/src/pegasus_v2f/pegasus_schema.py. The full labels (e.g.
               // "QTL — Molecular QTL") aren't shown here; a glossary on the
@@ -588,23 +599,68 @@ export function MappingCardForm({
 
           <div>
             <FieldLabel>
-              Score column <span className="text-error">*</span>
+              Primary value column <span className="text-error">*</span>
             </FieldLabel>
             <ColumnCombobox
-              value={draft.score_column ?? ""}
-              onChange={(v) => onChange({ score_column: v || undefined })}
+              value={draft.primary_value_column ?? ""}
+              onChange={(v) =>
+                onChange({ primary_value_column: v || undefined })
+              }
               columns={transformedColumns}
-              placeholder="column holding the score"
+              placeholder="column holding the value"
               invalid={isUnknownColumn(
-                draft.score_column ?? "",
+                draft.primary_value_column ?? "",
                 transformedColumns,
               )}
             />
+            <input
+              value={draft.primary_value_label ?? ""}
+              onChange={(e) =>
+                onChange({ primary_value_label: e.target.value || undefined })
+              }
+              placeholder={
+                catLabels?.primary
+                  ? `label, e.g. ${catLabels.primary}`
+                  : "label (optional, e.g. −log10 p)"
+              }
+              className="input input-bordered input-sm w-full mt-1.5"
+            />
             <p className="text-xs text-base-content/40 mt-1">
-              The source column whose value is this evidence&rsquo;s score. Need
-              it derived (e.g. &minus;log10 of a p-value)? Do that in Transforms,
-              then map the result here.
+              The source column whose value is this evidence&rsquo;s value — open,
+              map any numeric (derive in Transforms if needed). The label says
+              what it is.
             </p>
+          </div>
+
+          <div>
+            <FieldLabel>
+              Secondary value column{" "}
+              <span className="text-base-content/40">(optional)</span>
+            </FieldLabel>
+            <ColumnCombobox
+              value={draft.secondary_value_column ?? ""}
+              onChange={(v) =>
+                onChange({ secondary_value_column: v || undefined })
+              }
+              columns={transformedColumns}
+              placeholder="column holding a second value"
+              invalid={isUnknownColumn(
+                draft.secondary_value_column ?? "",
+                transformedColumns,
+              )}
+            />
+            <input
+              value={draft.secondary_value_label ?? ""}
+              onChange={(e) =>
+                onChange({ secondary_value_label: e.target.value || undefined })
+              }
+              placeholder={
+                catLabels?.secondary
+                  ? `label, e.g. ${catLabels.secondary}`
+                  : "label (optional, e.g. effect size)"
+              }
+              className="input input-bordered input-sm w-full mt-1.5"
+            />
           </div>
 
           <div>
@@ -664,6 +720,29 @@ export function MappingCardForm({
               className="input input-bordered input-sm font-mono w-full"
             />
           </label>
+
+          <div>
+            <FieldLabel>
+              Lead variant value column{" "}
+              <span className="text-base-content/40">(optional)</span>
+            </FieldLabel>
+            <ColumnCombobox
+              value={draft.primary_value_column ?? ""}
+              onChange={(v) =>
+                onChange({ primary_value_column: v || undefined })
+              }
+              columns={transformedColumns}
+              placeholder="e.g. the p-value column"
+              invalid={isUnknownColumn(
+                draft.primary_value_column ?? "",
+                transformedColumns,
+              )}
+            />
+            <p className="text-xs text-base-content/40 mt-1">
+              Picks each locus&rsquo;s lead variant — the signal with the lowest
+              value (p-value convention). Leave blank for no lead.
+            </p>
+          </div>
 
           {/* Loci are trait-scoped — a loci mapping must declare its trait(s). */}
           <TraitScopeFields

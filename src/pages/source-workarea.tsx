@@ -1283,12 +1283,13 @@ function MappingCard({
   const hasAllRequired = missingRequired.length === 0;
   const hasSourceTag = draft.source_tag.trim() !== "";
   // Evidence-target mappings must carry a PEGASUS evidence category and a
-  // score column (the per-row score value for that category).
+  // primary value column (the per-row value for that category).
   const needsCategory = draft.target === "evidence";
   const hasCategory =
     !needsCategory || (draft.evidence_category ?? "").trim() !== "";
-  const hasScore =
-    draft.target !== "evidence" || (draft.score_column ?? "").trim() !== "";
+  const hasPrimaryValue =
+    draft.target !== "evidence" ||
+    (draft.primary_value_column ?? "").trim() !== "";
   // Loci are trait-scoped — a loci mapping must declare a resolvable trait:
   // constant with ≥1 trait, or column with a trait column.
   const hasLociTrait =
@@ -1300,7 +1301,7 @@ function MappingCard({
     hasSourceTag &&
     hasAllRequired &&
     hasCategory &&
-    hasScore &&
+    hasPrimaryValue &&
     hasLociTrait &&
     (isNew || isDirty);
 
@@ -1317,7 +1318,14 @@ function MappingCard({
       if (draft.display_name) input.display_name = draft.display_name;
       if (draft.evidence_category)
         input.evidence_category = draft.evidence_category;
-      if (draft.score_column) input.score_column = draft.score_column;
+      if (draft.primary_value_column)
+        input.primary_value_column = draft.primary_value_column;
+      if (draft.secondary_value_column)
+        input.secondary_value_column = draft.secondary_value_column;
+      if (draft.primary_value_label)
+        input.primary_value_label = draft.primary_value_label;
+      if (draft.secondary_value_label)
+        input.secondary_value_label = draft.secondary_value_label;
       if (draft.centric) input.centric = draft.centric;
       if (draft.trait_scope) input.trait_scope = draft.trait_scope;
       if (draft.window_kb !== undefined) input.window_kb = draft.window_kb;
@@ -1335,7 +1343,10 @@ function MappingCard({
         display_name: draft.display_name,
         target: draft.target,
         evidence_category: draft.evidence_category,
-        score_column: draft.score_column,
+        primary_value_column: draft.primary_value_column,
+        secondary_value_column: draft.secondary_value_column,
+        primary_value_label: draft.primary_value_label,
+        secondary_value_label: draft.secondary_value_label,
         centric: draft.centric,
         trait_scope: draft.trait_scope,
         window_kb: draft.window_kb,
@@ -1378,8 +1389,8 @@ function MappingCard({
       ? `Map a column for: ${missingRequired.join(", ")}`
       : !hasCategory
         ? "Evidence category is required"
-        : !hasScore
-          ? "Score column is required for evidence mappings"
+        : !hasPrimaryValue
+          ? "Primary value column is required for evidence mappings"
           : !hasLociTrait
             ? "A loci mapping must declare a trait (constant or column)"
             : undefined;
