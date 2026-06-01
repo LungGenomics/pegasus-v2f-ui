@@ -46,7 +46,7 @@ export function LocusDetailPage() {
   if (!locus) {
     return (
       <div>
-        <Breadcrumb name={locusId} />
+        <Breadcrumb kind="Locus" name={locusId} />
         <p className="text-sm text-base-content/40 mt-4">Locus not found.</p>
       </div>
     );
@@ -54,7 +54,7 @@ export function LocusDetailPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <Breadcrumb name={locus.locus_name || locus.locus_id} />
+      <Breadcrumb kind="Locus" name={locus.locus_name || locus.locus_id} />
       <h1 className="text-lg font-semibold font-mono mt-2">
         {locus.locus_name || locus.locus_id}
       </h1>

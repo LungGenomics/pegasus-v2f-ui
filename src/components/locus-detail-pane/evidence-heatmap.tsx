@@ -2,7 +2,7 @@ import { Fragment, useState, useMemo, useRef, useEffect, useCallback } from "rea
 import { Link } from "react-router";
 import { ArrowUpNarrowWide, ArrowDownWideNarrow, ChevronRight, ChevronDown } from "lucide-react";
 import type { LocusGene, LocusGeneEvidence } from "../../api/types";
-import { formatPvalue, formatScore } from "../../lib/format";
+import { formatScore } from "../../lib/format";
 
 type Props = {
   genes: LocusGene[];
@@ -96,27 +96,13 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
     [evidenceMap],
   );
 
-  // Score-sum tiebreaker for the "#" rank — sum of the gene's scores across all
-  // its evidence. Keeps the heatmap rank in step with the Traits-page global
-  // rank (distinct categories, then summed score). See
-  // plans/2026-05-30-top-gene-rank-and-by-category.md.
-  const scoreSum = useCallback(
-    (gene: LocusGene) => {
-      const cats = evidenceMap.get(gene.gene_symbol);
-      if (!cats) return 0;
-      let sum = 0;
-      for (const evs of cats.values()) {
-        for (const e of evs) {
-          const v =
-            typeof e.score === "number"
-              ? e.score
-              : parseFloat(String(e.score ?? ""));
-          if (Number.isFinite(v)) sum += v;
-        }
-      }
-      return sum;
-    },
-    [evidenceMap],
+  // Instance-count tiebreaker for the "#" rank — total evidence instances for
+  // the gene. NOT a value sum: open values aren't comparable across categories/
+  // sources (plan 2026-06-01-evidence-value-model). Keeps the heatmap rank in
+  // step with the Traits-page rank (distinct categories, then instance count).
+  const instanceCount = useCallback(
+    (gene: LocusGene) => gene.evidence.length,
+    [],
   );
 
   const handleSort = (key: SortKey) => {
@@ -138,16 +124,15 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
       if (sortKey === "#") {
         const c = catCount(a) - catCount(b);
         if (c !== 0) return c * dir;
-        return (scoreSum(a) - scoreSum(b)) * dir;
+        return (instanceCount(a) - instanceCount(b)) * dir;
       }
       if (sortKey === "gene") {
         return a.gene_symbol.localeCompare(b.gene_symbol) * dir;
       }
+      // Category column: rank by instance count (scale-free), not a value max —
+      // open values aren't comparable across sources/instances.
       const aEvs = evidenceMap.get(a.gene_symbol)?.get(sortKey);
       const bEvs = evidenceMap.get(b.gene_symbol)?.get(sortKey);
-      const aMax = aEvs ? Math.max(...aEvs.map((e) => typeof e.score === "number" ? e.score : parseFloat(String(e.score ?? "")) || 0)) : 0;
-      const bMax = bEvs ? Math.max(...bEvs.map((e) => typeof e.score === "number" ? e.score : parseFloat(String(e.score ?? "")) || 0)) : 0;
-      if (aMax !== bMax) return (aMax - bMax) * dir;
       return ((aEvs?.length ?? 0) - (bEvs?.length ?? 0)) * dir;
     });
     return arr;
@@ -320,23 +305,31 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
                   >
                     {ev.source_tag}
                   </Link>
-                  {ev.evidence_stream && ev.evidence_stream !== "-" && (
-                    <span className="text-base-content/40">{ev.evidence_stream}</span>
-                  )}
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-base-content/60">
-                  {ev.pvalue && String(ev.pvalue) !== "-" && (
-                    <span>p = {formatPvalue(ev.pvalue)}</span>
+                  {ev.primary_value != null && String(ev.primary_value) !== "-" && (
+                    <span>
+                      {ev.primary_value_label ?? "value"} ={" "}
+                      {formatScore(ev.primary_value)}
+                    </span>
                   )}
-                  {ev.score && String(ev.score) !== "-" && (
-                    <span>score = {formatScore(ev.score)}</span>
-                  )}
+                  {ev.secondary_value != null &&
+                    String(ev.secondary_value) !== "-" && (
+                      <span>
+                        {ev.secondary_value_label ?? "secondary"} ={" "}
+                        {formatScore(ev.secondary_value)}
+                      </span>
+                    )}
                   {ev.tissue && String(ev.tissue) !== "-" && (
                     <span>{ev.tissue}</span>
                   )}
                   {ev.cell_type && String(ev.cell_type) !== "-" && (
                     <span>{ev.cell_type}</span>
                   )}
+                  {ev.ancestry && String(ev.ancestry) !== "-" && (
+                    <span>{ev.ancestry}</span>
+                  )}
+                  {ev.sex && String(ev.sex) !== "-" && <span>{ev.sex}</span>}
                 </div>
               </div>
             ))}
@@ -422,15 +415,11 @@ function GeneRow({
             );
           }
 
-          const maxScore = Math.max(
-            ...items.map((e) =>
-              typeof e.score === "number"
-                ? e.score
-                : parseFloat(String(e.score)) || 0,
-            ),
-          );
+          // Shade by instance COUNT, not value: open values aren't comparable
+          // across sources/categories (plan 2026-06-01-evidence-value-model).
+          // 1 instance → light, 5+ → full. The actual values show on hover.
           const hue = CATEGORY_HUES[cat] ?? "0";
-          const opacity = 0.2 + Math.min(maxScore, 1) * 0.7;
+          const opacity = 0.25 + Math.min((items.length - 1) / 4, 1) * 0.6;
           const isActive = popover?.gene === gene.gene_symbol && popover?.cat === cat;
 
           return (
@@ -494,8 +483,7 @@ function EvidenceDetailTable({
   const hasCellType = hasField("cell_type");
   const hasAncestry = hasField("ancestry");
   const hasSex = hasField("sex");
-  const hasPvalue = hasField("pvalue");
-  const hasEffectSize = hasField("effect_size");
+  const hasSecondary = hasField("secondary_value");
 
   // Group by category, preserving heatmap column order
   const grouped = useMemo(() => {
@@ -524,9 +512,8 @@ function EvidenceDetailTable({
     + (hasCellType ? 1 : 0)
     + (hasAncestry ? 1 : 0)
     + (hasSex ? 1 : 0)
-    + (hasPvalue ? 1 : 0)
-    + (hasEffectSize ? 1 : 0)
-    + 1; // score (always shown)
+    + 1 // primary value (always shown)
+    + (hasSecondary ? 1 : 0);
 
   const fmtVal = (v: unknown) => {
     if (v == null || String(v) === "-" || String(v) === "") return null;
@@ -542,14 +529,21 @@ function EvidenceDetailTable({
           {hasCellType && <th className="font-medium">cell type</th>}
           {hasAncestry && <th className="font-medium">ancestry</th>}
           {hasSex && <th className="font-medium">sex</th>}
-          {hasPvalue && <th className="font-medium">p-value</th>}
-          {hasEffectSize && <th className="font-medium">effect</th>}
-          <th className="font-medium">score</th>
+          <th className="font-medium">value</th>
+          {hasSecondary && <th className="font-medium">secondary</th>}
         </tr>
       </thead>
       <tbody>
         {grouped.map(({ key, label, items }) => {
           const hue = CATEGORY_HUES[key] ?? "0";
+          // Value labels for this category (per-mapping; uniform within a group
+          // in practice — take the first instance's).
+          const lbls = [
+            items[0]?.primary_value_label,
+            items[0]?.secondary_value_label,
+          ]
+            .filter(Boolean)
+            .join(" · ");
           return (
             <Fragment key={key}>
               <tr>
@@ -561,6 +555,9 @@ function EvidenceDetailTable({
                     />
                     <span className="font-medium text-xs">{key}</span>
                     <span className="text-base-content/40 text-xs">{label}</span>
+                    {lbls && (
+                      <span className="text-base-content/30 text-xs">({lbls})</span>
+                    )}
                   </span>
                 </td>
               </tr>
@@ -578,19 +575,19 @@ function EvidenceDetailTable({
                   {hasCellType && <td className="text-base-content/60">{fmtVal(ev.cell_type) ?? "—"}</td>}
                   {hasAncestry && <td className="text-base-content/60">{fmtVal(ev.ancestry) ?? "—"}</td>}
                   {hasSex && <td className="text-base-content/60">{fmtVal(ev.sex) ?? "—"}</td>}
-                  {hasPvalue && (
-                    <td className="tabular-nums text-base-content/60">
-                      {ev.pvalue && String(ev.pvalue) !== "-" ? formatPvalue(ev.pvalue) : "—"}
-                    </td>
-                  )}
-                  {hasEffectSize && (
-                    <td className="tabular-nums text-base-content/60">
-                      {ev.effect_size && String(ev.effect_size) !== "-" ? formatScore(ev.effect_size) : "—"}
-                    </td>
-                  )}
                   <td className="tabular-nums">
-                    {ev.score && String(ev.score) !== "-" ? formatScore(ev.score) : "—"}
+                    {ev.primary_value != null && String(ev.primary_value) !== "-"
+                      ? formatScore(ev.primary_value)
+                      : "—"}
                   </td>
+                  {hasSecondary && (
+                    <td className="tabular-nums text-base-content/60">
+                      {ev.secondary_value != null &&
+                      String(ev.secondary_value) !== "-"
+                        ? formatScore(ev.secondary_value)
+                        : "—"}
+                    </td>
+                  )}
                 </tr>
               ))}
             </Fragment>
