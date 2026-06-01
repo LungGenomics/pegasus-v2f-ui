@@ -229,20 +229,92 @@ function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
   return row;
 }
 
+function paramLiteral(p: unknown): string {
+  if (p === null || p === undefined) return "NULL";
+  if (typeof p === "number") return Number.isFinite(p) ? String(p) : "NULL";
+  if (typeof p === "boolean") return p ? "TRUE" : "FALSE";
+  // Strings: single-quote-escape
+  return `'${String(p).replace(/'/g, "''")}'`;
+}
+
 function rewriteParams(sql: string, params: unknown[] | undefined): string {
   // duckdb-wasm's prepared statement API works, but for our SQL builders the
   // simpler path is inlining literals (with proper escaping) since the SQL
   // strings are static and we control the inputs.
+  //
+  // Only `?` OUTSIDE string/identifier literals and comments is a positional
+  // placeholder. SQL we build can embed literal `?` inside string literals —
+  // most notably the parse_variant_id regex `^(?:chr)?(\w+)…` once a transform
+  // pipeline is inlined into a parameterized query. A blind /\?/g replace
+  // clobbered those, binding params to the regex's `?` and corrupting the SQL.
+  // We also build SQL with `--` comments that contain apostrophes (e.g.
+  // "they'd") — a naive literal scan mistakes those for an unterminated string
+  // and skips real placeholders after them. So scan, tracking '…'/"…" literals
+  // (DuckDB escapes the quote by doubling: '' and "") and -- / /* */ comments.
   if (!params || params.length === 0) return sql;
   let i = 0;
-  return sql.replace(/\?/g, () => {
-    const p = params[i++];
-    if (p === null || p === undefined) return "NULL";
-    if (typeof p === "number") return Number.isFinite(p) ? String(p) : "NULL";
-    if (typeof p === "boolean") return p ? "TRUE" : "FALSE";
-    // Strings: single-quote-escape
-    return `'${String(p).replace(/'/g, "''")}'`;
-  });
+  let out = "";
+  let inSingle = false;
+  let inDouble = false;
+  let inLine = false; // -- … <newline>
+  let inBlock = false; // /* … */
+  for (let p = 0; p < sql.length; p++) {
+    const ch = sql[p]!;
+    if (inLine) {
+      out += ch;
+      if (ch === "\n") inLine = false;
+      continue;
+    }
+    if (inBlock) {
+      out += ch;
+      if (ch === "*" && sql[p + 1] === "/") {
+        out += "/";
+        p++;
+        inBlock = false;
+      }
+      continue;
+    }
+    if (inSingle) {
+      out += ch;
+      if (ch === "'") {
+        if (sql[p + 1] === "'") {
+          out += "'";
+          p++;
+        } else inSingle = false;
+      }
+      continue;
+    }
+    if (inDouble) {
+      out += ch;
+      if (ch === '"') {
+        if (sql[p + 1] === '"') {
+          out += '"';
+          p++;
+        } else inDouble = false;
+      }
+      continue;
+    }
+    if (ch === "-" && sql[p + 1] === "-") {
+      inLine = true;
+      out += "--";
+      p++;
+    } else if (ch === "/" && sql[p + 1] === "*") {
+      inBlock = true;
+      out += "/*";
+      p++;
+    } else if (ch === "'") {
+      inSingle = true;
+      out += ch;
+    } else if (ch === '"') {
+      inDouble = true;
+      out += ch;
+    } else if (ch === "?") {
+      out += paramLiteral(params[i++]);
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 export class DuckDBWasmDataSource implements DataSource {

@@ -21,6 +21,10 @@ import { mappingProjections } from "./evidence";
 import { cytobandLabel } from "../cytobands";
 import type { ConfigMapping } from "../../api/types";
 
+function strLit(value: string): string {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
 const MAIN_LOCI_DDL = `CREATE TABLE IF NOT EXISTS main.loci (
   locus_id          VARCHAR PRIMARY KEY,
   source_tag        VARCHAR,
@@ -121,8 +125,8 @@ async function buildOne(
        end_position, lead_rsid, lead_position, lead_pvalue, n_signals,
        n_candidate_genes)
     SELECT
-      ? || '_' || SUBSTR(CAST(trait_id AS VARCHAR), 1, 8) || '_' || chromosome || '_' || grp AS locus_id,
-      ? AS source_tag,
+      ${strLit(sourceName)} || '_' || SUBSTR(CAST(trait_id AS VARCHAR), 1, 8) || '_' || chromosome || '_' || grp AS locus_id,
+      ${strLit(sourceTag)} AS source_tag,
       trait_id,
       chromosome || ':' ||
         CAST(MIN(w_start) AS VARCHAR) || '-' || CAST(MAX(w_end) AS VARCHAR) AS locus_name,
@@ -137,10 +141,11 @@ async function buildOne(
     FROM grouped
     GROUP BY trait_id, chromosome, grp
   `;
-  await ds.exec({
-    sql,
-    params: [sourceName, sourceTag],
-  });
+  // No `?` params here: sourceName/sourceTag are inlined as literals above.
+  // This query embeds the loci mapping's transform pipeline, which can contain
+  // literal `?` (the parse_variant_id regex `(?:chr)?`); mixing positional
+  // params with that pipeline is what corrupted the build.
+  await ds.exec({ sql });
 
   const [c] = await ds.query<{ n: number }>({
     sql: "SELECT COUNT(*) AS n FROM main.loci WHERE source_tag = ?",
