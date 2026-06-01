@@ -143,11 +143,18 @@ const STATEMENTS: string[] = [
      display_name        VARCHAR,
      target              VARCHAR NOT NULL,
      evidence_category   VARCHAR,
-     -- Source column whose (already-prepared) value IS each evidence row's
-     -- score for this category — a plain column alias, NO calculation here.
-     -- Any derivation (e.g. -log10(p)) belongs in the transform pipeline.
-     -- Required for target='evidence'; NULL for target='loci'.
-     score_column        VARCHAR,
+     -- Open per-category values: the source column whose (already-prepared)
+     -- value IS the evidence's primary value for this category — a plain alias,
+     -- NO calculation here (derivations belong in the transform pipeline). The
+     -- value is NOT standardized: map whatever numeric the category reports.
+     -- secondary_value is an optional second number (e.g. an effect size). The
+     -- *_label columns describe what each value is ("−log10 p", "PP4", "effect
+     -- size"); optional, defaulted by category in the mapping form, editable.
+     -- Required for target='evidence' (primary): NULL for target='loci'.
+     primary_value_column   VARCHAR,
+     secondary_value_column VARCHAR,
+     primary_value_label    VARCHAR,
+     secondary_value_label  VARCHAR,
      centric             VARCHAR,
      trait_scope         VARCHAR,
      source_tag          VARCHAR NOT NULL UNIQUE,

@@ -87,10 +87,15 @@ async function buildOne(
     WITH variants AS (
       -- TRY_CAST so dirty sentinels (e.g. position 'NA') become NULL and drop
       -- out below rather than aborting the whole build.
+      -- The lead variant is the lowest-ranking-value signal in a merged group.
+      -- That ranking value is the loci mapping's primary_value (conventionally a
+      -- p-value — lowest wins); aliased pvalue locally below. NULL when the loci
+      -- mapping doesn't map a value → lead stays NULL (windows/merge still work,
+      -- they only need position).
       SELECT chromosome,
              TRY_CAST(position AS BIGINT) AS position,
              CAST(rsid AS VARCHAR) AS rsid,
-             TRY_CAST(pvalue AS DOUBLE) AS pvalue,
+             TRY_CAST(primary_value AS DOUBLE) AS pvalue,
              trait_id
       FROM (${variantsSql}) _proj
       WHERE chromosome IS NOT NULL

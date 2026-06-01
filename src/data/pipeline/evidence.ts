@@ -29,18 +29,29 @@ function strLit(value: string): string {
 }
 
 // One canonical-column SELECT-item for a mapping: alias the assigned raw
-// column, or NULL if the mapping doesn't map this field.
+// column, or NULL if the mapping doesn't map this field (or maps it to a blank
+// column — a leftover empty field row, e.g. gene_symbol seeded then unused on a
+// variant-centric mapping; emitting ident("") would be a zero-length identifier
+// SQL error).
 function fieldExpr(mapping: ConfigMapping, field: string): string {
   const f = (mapping.fields ?? []).find((x) => x.canonical_field === field);
-  return f ? `${ident(f.raw_column)} AS ${ident(field)}` : `NULL AS ${ident(field)}`;
+  const col = f?.raw_column?.trim();
+  return col ? `${ident(col)} AS ${ident(field)}` : `NULL AS ${ident(field)}`;
 }
 
-// `score` aliases the mapping's chosen score_column (a plain column — NO
-// calculation; any derivation lives in the source's transform pipeline).
-// Required for evidence mappings; NULL when unset / for loci mappings.
-function scoreExpr(mapping: ConfigMapping): string {
-  const col = mapping.score_column?.trim();
-  return col ? `${ident(col)} AS ${ident("score")}` : `NULL AS ${ident("score")}`;
+// primary_value / secondary_value alias the mapping's chosen value columns —
+// plain columns, NO calculation (derivations live in the transform pipeline).
+// Open numerics: required (primary) for evidence mappings, NULL when unset /
+// for loci mappings.
+function valueExpr(col: string | undefined, alias: string): string {
+  const c = col?.trim();
+  return c ? `${ident(c)} AS ${ident(alias)}` : `NULL AS ${ident(alias)}`;
+}
+
+// Optional value label literal — describes what the value is. NULL when unset.
+function labelLit(label: string | undefined): string {
+  const s = label?.trim();
+  return s ? strLit(s) : "NULL";
 }
 
 // trait_id projection for a single trait literal (or a column/NULL). Returns
@@ -59,12 +70,19 @@ export function mappingProjections(
   mapping: ConfigMapping,
   pipeline: string,
 ): string[] {
-  const cols = CANONICAL_FIELDS.map((f) =>
-    f === "score" ? scoreExpr(mapping) : fieldExpr(mapping, f),
-  );
+  const cols = [
+    // Match keys + attributes (all column-mapped now — no special cases).
+    ...CANONICAL_FIELDS.map((f) => fieldExpr(mapping, f)),
+    // The open per-category values.
+    valueExpr(mapping.primary_value_column, "primary_value"),
+    valueExpr(mapping.secondary_value_column, "secondary_value"),
+  ];
   const tail = [
     `${strLit(mapping.evidence_category ?? "")} AS evidence_category`,
     `${strLit(mapping.source_tag)} AS source_tag`,
+    // Per-mapping value labels (literals; describe what each value is).
+    `${labelLit(mapping.primary_value_label)} AS primary_value_label`,
+    `${labelLit(mapping.secondary_value_label)} AS secondary_value_label`,
     // centric routing meta: 'variant' fans to a locus's candidate genes by
     // position; anything else is gene-keyed. Defaults to 'gene'.
     `${strLit(mapping.centric === "variant" ? "variant" : "gene")} AS centric`,
@@ -167,8 +185,12 @@ export async function buildEvidenceView(): Promise<void> {
     // No evidence mappings yet — a typed-but-empty view so joins resolve.
     const cols = [
       ...CANONICAL_FIELDS.map((f) => `CAST(NULL AS VARCHAR) AS ${ident(f)}`),
+      `CAST(NULL AS VARCHAR) AS primary_value`,
+      `CAST(NULL AS VARCHAR) AS secondary_value`,
       `CAST(NULL AS VARCHAR) AS evidence_category`,
       `CAST(NULL AS VARCHAR) AS source_tag`,
+      `CAST(NULL AS VARCHAR) AS primary_value_label`,
+      `CAST(NULL AS VARCHAR) AS secondary_value_label`,
       `CAST(NULL AS VARCHAR) AS centric`,
       `CAST(NULL AS UUID) AS trait_id`,
     ];

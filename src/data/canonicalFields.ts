@@ -1,19 +1,22 @@
 // Canonical evidence-table fields a mapping can assign. Order is the
 // recommended display order.
 
+// Column-mapped canonical fields a mapping can assign: MATCH KEYS (how evidence
+// binds to loci/genes) + ATTRIBUTES (the context a measurement was taken in).
+// The numeric VALUES (primary_value / secondary_value) are NOT here — they're
+// mapping-level columns projected specially (see evidence.ts), because a value
+// is open and per-category, not a universal attribute. pvalue/effect_size/
+// evidence_stream were dropped: they're type-specific VALUES, not attributes —
+// an effect size now goes in secondary_value (labeled), not its own field.
 export const CANONICAL_FIELDS = [
   "gene_symbol",
   "chromosome",
   "position",
   "rsid",
-  "pvalue",
-  "effect_size",
-  "score",
   "tissue",
   "cell_type",
   "ancestry",
   "sex",
-  "evidence_stream",
 ] as const;
 
 export type CanonicalField = (typeof CANONICAL_FIELDS)[number];

@@ -122,11 +122,14 @@ export interface Effector {
 // integration scoring.
 export interface LocusGeneEvidence {
   evidence_category: string;
-  evidence_stream?: string;
   source_tag: string;
-  pvalue?: number | string;
-  effect_size?: number | string;
-  score?: number | string;
+  // Open per-category values + their (optional) labels. Effect direction/etc.
+  // lives in secondary_value, not its own field.
+  primary_value?: number | string;
+  secondary_value?: number | string;
+  primary_value_label?: string;
+  secondary_value_label?: string;
+  // Attributes — the context a measurement was taken in.
   tissue?: string;
   cell_type?: string;
   ancestry?: string;
@@ -360,9 +363,17 @@ export interface ConfigMapping {
   target: MappingTarget;
   /** Set when target='evidence'. */
   evidence_category?: string;
-  /** Source column whose value is each evidence row's score (plain alias, no
-   *  calculation). Required for target='evidence'. */
-  score_column?: string;
+  /** Source column whose value IS each evidence row's primary value for this
+   *  category (plain alias, no calculation — derivations go in transforms).
+   *  Open (any numeric). Required for target='evidence'. */
+  primary_value_column?: string;
+  /** Optional source column for a second value (e.g. an effect size). */
+  secondary_value_column?: string;
+  /** Optional labels describing what each value is ("−log10 p", "PP4", "effect
+   *  size"). Defaulted by category in the form, editable. Descriptive only —
+   *  they don't constrain the value's format. */
+  primary_value_label?: string;
+  secondary_value_label?: string;
   centric?: MappingCentric;
   trait_scope?: MappingTraitScope;
   /** Set when target='loci' (per-mapping loci resolution). */

@@ -19,21 +19,24 @@
 
 import { getDataSource } from "../select";
 
-// The 15 canonical evidence columns, in order. locus_evidence = these +
-// locus_id + match_type.
+// The canonical evidence columns carried from main.evidence, in order.
+// locus_evidence = these + locus_id + locus_trait_id + is_cross_trait +
+// match_type. Match keys + attributes + the open primary/secondary values and
+// their labels (pvalue/effect_size/evidence_stream were dropped — a value like
+// effect size now rides in secondary_value).
 const EVIDENCE_COLS = [
   "gene_symbol",
   "chromosome",
   "position",
   "rsid",
-  "pvalue",
-  "effect_size",
-  "score",
   "tissue",
   "cell_type",
   "ancestry",
   "sex",
-  "evidence_stream",
+  "primary_value",
+  "secondary_value",
+  "primary_value_label",
+  "secondary_value_label",
   "evidence_category",
   "source_tag",
   "trait_id",

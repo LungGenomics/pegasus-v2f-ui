@@ -178,13 +178,16 @@ export async function traitLoci(
       "       (SELECT gene_symbol FROM ( " +
       "          SELECT le2.gene_symbol, " +
       "                 COUNT(DISTINCT le2.evidence_category) AS ncat, " +
-      "                 SUM(TRY_CAST(le2.score AS DOUBLE)) AS ssum " +
+      "                 COUNT(*) AS ninst " +
       "            FROM main.locus_evidence le2 " +
       "           WHERE le2.locus_id = l.locus_id AND NOT le2.is_cross_trait " +
       "             AND le2.match_type <> 'candidate' " +
       "             AND le2.gene_symbol IS NOT NULL " +
       "           GROUP BY le2.gene_symbol " +
-      "           ORDER BY ncat DESC, ssum DESC NULLS LAST, le2.gene_symbol " +
+      // Rank by breadth (distinct categories), then instance count — both
+      // scale-free. NOT a value sum: open values aren't comparable across
+      // categories/sources (see plan 2026-06-01-evidence-value-model).
+      "           ORDER BY ncat DESC, ninst DESC, le2.gene_symbol " +
       "           LIMIT 1) ) AS top_gene, " +
       "       (SELECT ARG_MIN(g.gene_symbol, GREATEST(0, " +
       "                 g.\"start\" - COALESCE(l.lead_position, (l.start_position + l.end_position) / 2), " +
@@ -254,9 +257,11 @@ export async function traitLocusCategoryCoverage(
 }
 
 /** Per-locus top gene WITHIN a single evidence category for a trait: the gene
- *  with the highest summed score in that category at each locus. Returns a
+ *  with the most evidence instances in that category at each locus. Returns a
  *  locus_id → gene_symbol map (loci with no gene in the category are absent;
- *  the UI falls back to the cytoband label for those). */
+ *  the UI falls back to the cytoband label for those). Ranks by instance count,
+ *  not value sum — open values aren't comparable (see plan
+ *  2026-06-01-evidence-value-model). */
 export async function traitLociTopGeneByCategory(
   traitId: string,
   category: string,
@@ -267,8 +272,7 @@ export async function traitLociTopGeneByCategory(
       "SELECT locus_id, gene_symbol FROM ( " +
       "  SELECT le.locus_id, le.gene_symbol, " +
       "         ROW_NUMBER() OVER (PARTITION BY le.locus_id " +
-      "           ORDER BY SUM(TRY_CAST(le.score AS DOUBLE)) DESC NULLS LAST, " +
-      "                    le.gene_symbol) AS rn " +
+      "           ORDER BY COUNT(*) DESC, le.gene_symbol) AS rn " +
       "    FROM main.locus_evidence le " +
       "   WHERE le.locus_trait_id = ? AND NOT le.is_cross_trait " +
       "     AND le.evidence_category = ? " +
@@ -349,20 +353,21 @@ export async function locusGenes(
     gene_symbol: string;
     match_type: string;
     evidence_category: string | null;
-    evidence_stream: string | null;
     source_tag: string | null;
-    pvalue: number | string | null;
-    effect_size: number | string | null;
-    score: number | string | null;
+    primary_value: number | string | null;
+    secondary_value: number | string | null;
+    primary_value_label: string | null;
+    secondary_value_label: string | null;
     tissue: string | null;
     cell_type: string | null;
     ancestry: string | null;
     sex: string | null;
   }>({
     sql:
-      "SELECT gene_symbol, match_type, evidence_category, evidence_stream, " +
-      "       source_tag, pvalue, effect_size, score, tissue, cell_type, " +
-      "       ancestry, sex " +
+      "SELECT gene_symbol, match_type, evidence_category, source_tag, " +
+      "       primary_value, secondary_value, " +
+      "       primary_value_label, secondary_value_label, " +
+      "       tissue, cell_type, ancestry, sex " +
       "FROM main.locus_evidence " +
       "WHERE locus_id = ? AND gene_symbol IS NOT NULL " +
       crossClause,
@@ -381,10 +386,12 @@ export async function locusGenes(
         evidence_category: r.evidence_category,
         source_tag: r.source_tag ?? "",
       };
-      if (r.evidence_stream != null) ev.evidence_stream = r.evidence_stream;
-      if (r.pvalue != null) ev.pvalue = r.pvalue;
-      if (r.effect_size != null) ev.effect_size = r.effect_size;
-      if (r.score != null) ev.score = r.score;
+      if (r.primary_value != null) ev.primary_value = r.primary_value;
+      if (r.secondary_value != null) ev.secondary_value = r.secondary_value;
+      if (r.primary_value_label != null)
+        ev.primary_value_label = r.primary_value_label;
+      if (r.secondary_value_label != null)
+        ev.secondary_value_label = r.secondary_value_label;
       if (r.tissue != null) ev.tissue = r.tissue;
       if (r.cell_type != null) ev.cell_type = r.cell_type;
       if (r.ancestry != null) ev.ancestry = r.ancestry;
@@ -489,24 +496,36 @@ export interface GeneEvidenceRow {
   evidence_category: string | null;
   source_tag: string | null;
   trait_label: string | null;
-  pvalue: number | string | null;
-  effect_size: number | string | null;
-  score: number | string | null;
+  // Open per-category values + labels (raw, per-instance — honest here; not
+  // aggregated across categories).
+  primary_value: number | string | null;
+  secondary_value: number | string | null;
+  primary_value_label: string | null;
+  secondary_value_label: string | null;
+  // Attributes.
   tissue: string | null;
-  match_type: string;
+  cell_type: string | null;
+  ancestry: string | null;
+  sex: string | null;
 }
 
-/** Flat evidence rows for a gene (across all its loci/traits). */
+/** Evidence INSTANCES for a gene, across all its loci/traits — one row per
+ *  measurement. The gene page groups these by category (count = the per-category
+ *  summary; values shown per-instance on expand). Raw values appear only here,
+ *  where they're honest — never aggregated across categories (open, incomparable
+ *  scales). */
 export async function geneEvidence(symbol: string): Promise<GeneEvidenceRow[]> {
   const ds = getDataSource();
   return ds.query<GeneEvidenceRow>({
     sql:
       "SELECT le.evidence_category, le.source_tag, t.label AS trait_label, " +
-      "       le.pvalue, le.effect_size, le.score, le.tissue, le.match_type " +
+      "       le.primary_value, le.secondary_value, " +
+      "       le.primary_value_label, le.secondary_value_label, " +
+      "       le.tissue, le.cell_type, le.ancestry, le.sex " +
       "FROM main.locus_evidence le " +
       "LEFT JOIN config.traits t ON t.id = le.trait_id " +
       "WHERE le.gene_symbol = ? AND le.match_type <> 'candidate' " +
-      "ORDER BY le.evidence_category",
+      "ORDER BY le.evidence_category, le.source_tag",
     params: [symbol],
   });
 }
