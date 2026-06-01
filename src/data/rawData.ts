@@ -161,6 +161,48 @@ export async function buildTransformedPipeline(sourceId: string): Promise<string
   return compileTransformPipeline(entries, baseRaw, { sourceIsSql: true });
 }
 
+/** Per-step INPUT columns for a (draft) transform pipeline. Returns one entry
+ *  per step, where `out[i]` is the schema feeding step `i` — i.e. the columns
+ *  produced by steps `0..i-1` over the raw table (`out[0]` = raw columns). The
+ *  transforms editor uses this so each step's column picker offers the columns
+ *  available AT THAT POINT, including ones an earlier step generated (e.g.
+ *  affix 'chr' onto the `chromosome` column parse_variant_id produced) — not
+ *  just the raw columns. The trailing `out[steps.length]` is the final output
+ *  schema.
+ *
+ *  Steps are drafts (not yet persisted), so we compile each prefix fresh over
+ *  main.raw_<id>. A prefix that fails to DESCRIBE (a half-typed step the
+ *  compiler can't yet realize) falls back to the last good schema rather than
+ *  emptying the picker. */
+export async function getStepInputSchemas(
+  sourceId: string,
+  steps: { type: string; params: Record<string, unknown> }[],
+): Promise<string[][]> {
+  const ds = getDataSource();
+  const baseRaw = `SELECT * FROM main.${ident(rawTableName(sourceId))}`;
+  const out: string[][] = [];
+  let lastGood: string[] = [];
+  for (let i = 0; i <= steps.length; i++) {
+    const entries: TransformConfigEntry[] = steps
+      .slice(0, i)
+      .map((t) => ({ type: t.type, ...t.params }));
+    try {
+      const pipeline = compileTransformPipeline(entries, baseRaw, {
+        sourceIsSql: true,
+      });
+      const desc = await ds.query<{ column_name: string }>({
+        sql: `DESCRIBE ${pipeline}`,
+      });
+      lastGood = desc.map((r) => r.column_name);
+    } catch {
+      // Half-typed/unrealizable prefix — keep the last good schema so the
+      // picker still shows the columns available before this step.
+    }
+    out.push(lastGood);
+  }
+  return out;
+}
+
 /** Columns of the transformed view (via DuckDB `DESCRIBE`). Robust to empty
  *  results — works even if the pipeline yields zero rows. */
 export async function getTransformedSchema(

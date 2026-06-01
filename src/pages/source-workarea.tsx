@@ -10,7 +10,11 @@ import {
   transformTypeMeta,
   TRANSFORM_CATEGORY_ORDER,
 } from "../data/config-schema/transforms";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import {
   Trash2,
   PanelRightClose,
@@ -34,6 +38,7 @@ import {
   getRawPage,
   getTransformedSchema,
   getTransformedPage,
+  getStepInputSchemas,
   type RawPageRequest,
 } from "../data/rawData";
 import {
@@ -779,6 +784,21 @@ function TransformsTab({
   const [adding, setAdding] = useState(false);
   const isDirty = JSON.stringify(draft) !== persistedSig;
 
+  // Input columns for each step = the schema produced by all PRIOR steps, so a
+  // step's column picker can reference columns an earlier step generated (e.g.
+  // affix 'chr' onto the `chromosome` parse_variant_id produced). Recomputed as
+  // the draft changes; falls back to rawColumns until it resolves.
+  const draftSig = JSON.stringify(draft);
+  const stepSchemasQ = useQuery({
+    queryKey: ["step-input-schemas", sourceId, draftSig],
+    enabled: !!sourceId,
+    queryFn: () => getStepInputSchemas(sourceId, draft),
+    // Keep the prior step schemas visible while recomputing on each draft edit,
+    // so the column pickers don't flash back to raw columns between keystrokes.
+    placeholderData: keepPreviousData,
+  });
+  const stepSchemas = stepSchemasQ.data;
+
   const addStep = (type: string) => {
     setAdding(false);
     setDraft([...draft, { type, params: {} }]);
@@ -833,7 +853,7 @@ function TransformsTab({
               type: t.type,
               params: t.params,
             } as ConfigSourceTransform}
-            rawColumns={rawColumns}
+            inputColumns={stepSchemas?.[i] ?? rawColumns}
             canMoveUp={i > 0}
             canMoveDown={i < draft.length - 1}
             onParamsChange={(p) => updateParams(i, p)}
@@ -887,7 +907,7 @@ function stripType(t: TransformConfigEntry): Record<string, unknown> {
 function TransformStepCard({
   seq,
   transform,
-  rawColumns,
+  inputColumns,
   canMoveUp,
   canMoveDown,
   onParamsChange,
@@ -896,7 +916,9 @@ function TransformStepCard({
 }: {
   seq: number;
   transform: ConfigSourceTransform;
-  rawColumns: string[];
+  /** Columns available as input to this step (raw + everything earlier steps
+   *  produced), feeding its column-ref pickers. */
+  inputColumns: string[];
   canMoveUp: boolean;
   canMoveDown: boolean;
   onParamsChange: (params: Record<string, unknown>) => void;
@@ -1019,7 +1041,7 @@ function TransformStepCard({
             {err && <p className="text-xs text-error">{err}</p>}
           </>
         ) : (
-          <SchemaFormProvider columns={rawColumns}>
+          <SchemaFormProvider columns={inputColumns}>
             <TransformParamEditor
               transform={
                 { type: transform.type, ...transform.params } as TransformConfigEntry
