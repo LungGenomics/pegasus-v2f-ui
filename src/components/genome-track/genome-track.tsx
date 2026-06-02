@@ -43,6 +43,9 @@ export type GenomeTrackProps = {
   chromNames: string[];
   chromLengths: number[];
   traitColors?: Record<string, string>;
+  /** A chromosome region (relative bp) to highlight on the bar — used to
+   *  preview where an action (e.g. the UCSC link) will take you. */
+  highlightRegion?: { chr: string; start: number; end: number } | null;
   className?: string;
 };
 
@@ -54,6 +57,7 @@ export const GenomeTrack = forwardRef<GenomeTrackHandle, GenomeTrackProps>(funct
   chromNames,
   chromLengths,
   traitColors,
+  highlightRegion,
   className,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -345,6 +349,40 @@ export const GenomeTrack = forwardRef<GenomeTrackHandle, GenomeTrackProps>(funct
         onMouseMove={handleSvgMouseMove}
       >
         <g pointerEvents="none" transform={`translate(0,${ZOOM_PAD_TOP})`}>
+          {highlightRegion &&
+            (() => {
+              const a = layout.bpToPixel(highlightRegion.chr, highlightRegion.start);
+              const b = layout.bpToPixel(highlightRegion.chr, highlightRegion.end);
+              const lo = Math.max(0, Math.min(a, b));
+              const hi = Math.min(containerWidth, Math.max(a, b));
+              if (hi <= lo) return null;
+              const w = Math.max(2, hi - lo);
+              // A slim band hugging the bar: a blurred copy (glow) + a crisp
+              // overlay, both centered on the bar — not a full-height box.
+              return (
+                <>
+                  <rect
+                    x={lo}
+                    width={w}
+                    y={BAR_Y - 4}
+                    height={BAR_HEIGHT + 8}
+                    rx={4}
+                    fill="var(--color-primary)"
+                    fillOpacity={0.22}
+                    style={{ filter: "blur(3px)" }}
+                  />
+                  <rect
+                    x={lo}
+                    width={w}
+                    y={BAR_Y - 1}
+                    height={BAR_HEIGHT + 2}
+                    rx={2}
+                    fill="var(--color-primary)"
+                    fillOpacity={0.35}
+                  />
+                </>
+              );
+            })()}
           <ChromosomeTrack
             layout={layout}
             barY={BAR_Y}

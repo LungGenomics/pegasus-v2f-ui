@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
+  ExternalLink,
 } from "lucide-react";
 import { useSyncSession } from "../../hooks/useSyncSession";
 import { usePersistentState } from "../../hooks/usePersistentState";
@@ -38,7 +39,12 @@ import { GenomeTrack, type GenomeTrackHandle } from "../../components/genome-tra
 import { TrackControls } from "../../components/genome-track/track-controls";
 import { EvidenceHeatmap } from "../../components/locus-detail-pane/evidence-heatmap";
 import type { TrackLocus, ViewState } from "../../components/genome-track/types";
-import { buildChromList, chromOffsets, toAbsolute } from "../../lib/genome-coords";
+import {
+  buildChromList,
+  chromOffsets,
+  toAbsolute,
+  fromAbsolute,
+} from "../../lib/genome-coords";
 import { formatCoordinate, formatPvalue } from "../../lib/format";
 import { STUDY_PALETTE } from "../../lib/colors";
 
@@ -79,6 +85,25 @@ function sortLoci(loci: LocusRow[], key: SortKey, dir: SortDir): LocusRow[] {
   const val = (l: LocusRow) =>
     key === "evidence" ? (l.n_evidence ?? 0) : (l.n_candidate_genes ?? 0);
   return [...loci].sort((a, b) => (val(a) - val(b)) * sign);
+}
+
+// Map the track's absolute view bounds to a single-chromosome UCSC region.
+// UCSC shows one contiguous region at a time, so we take the chromosome under
+// the view's center and clamp the bounds to it (the view's visible slice of
+// that chromosome). Positions are 1-based for UCSC.
+function viewToUcscRegion(
+  view: ViewState,
+  chroms: { name: string; length: number }[],
+  offsets: Map<string, number>,
+): { chr: string; start: number; end: number } | null {
+  const center = (view.startBp + view.endBp) / 2;
+  const { chr } = fromAbsolute(center, chroms, offsets);
+  const offset = offsets.get(chr);
+  const len = chroms.find((c) => c.name === chr)?.length;
+  if (offset == null || len == null) return null;
+  const start = Math.min(len, Math.max(1, Math.round(view.startBp - offset) + 1));
+  const end = Math.max(1, Math.min(len, Math.round(view.endBp - offset)));
+  return { chr, start, end: Math.max(start, end) };
 }
 
 function cytobandText(l: LocusRow): string {
@@ -341,6 +366,8 @@ export function TraitDetail({ traitId }: { traitId: string }) {
   const trackRef = useRef<GenomeTrackHandle>(null);
 
   const [locusFilter, setLocusFilter] = useState("");
+  // Hovering the UCSC button glows the track to signal the view it will open.
+  const [ucscHover, setUcscHover] = useState(false);
   // How loci are labeled on the track + list. cytoband (locus_name) and coords
   // are derivable from each locus's geometry; nearest/top_gene come from
   // traitLoci(); top_gene_category resolves per-locus from byCatMap below. All
@@ -497,6 +524,30 @@ export function TraitDetail({ traitId }: { traitId: string }) {
   const lastViewRef = useRef<ViewState | null>(null);
   const listContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // Chromosome geometry for the UCSC link (and a whole-genome fallback view).
+  const chromGeom = useMemo(() => {
+    if (!chromQ.data) return null;
+    const chroms = buildChromList(chromQ.data.names, chromQ.data.lengths);
+    return { chroms, offsets: chromOffsets(chroms).offsets };
+  }, [chromQ.data]);
+
+  // Open the current track view in the UCSC Genome Browser (hg38). UCSC is
+  // one chromosome at a time, so this maps the view to the chromosome under its
+  // center, clamped to the visible slice. Falls back to the full genome when no
+  // view has fired yet.
+  const openUcsc = useCallback(() => {
+    if (!chromGeom) return;
+    const view = lastViewRef.current ?? { startBp: 0, endBp: totalGenomeLength };
+    const region = viewToUcscRegion(view, chromGeom.chroms, chromGeom.offsets);
+    if (!region) return;
+    const pos = `${region.chr}:${region.start}-${region.end}`;
+    window.open(
+      `https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=${encodeURIComponent(pos)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }, [chromGeom, totalGenomeLength]);
+
   const applyViewFilter = useCallback(
     (view: ViewState, container: HTMLElement) => {
       if (!lociAbsPositions) return;
@@ -603,6 +654,15 @@ export function TraitDetail({ traitId }: { traitId: string }) {
           <GenomeTrack
             ref={trackRef}
             loci={filteredTrackLoci}
+            highlightRegion={
+              ucscHover && chromGeom && lastViewRef.current
+                ? viewToUcscRegion(
+                    lastViewRef.current,
+                    chromGeom.chroms,
+                    chromGeom.offsets,
+                  )
+                : null
+            }
             selectedLocusId={selectedLocusId}
             onLocusSelect={setSelectedLocus}
             onViewChange={handleViewChange}
@@ -650,7 +710,20 @@ export function TraitDetail({ traitId }: { traitId: string }) {
           onSelectedSources={setSelectedSources}
         />
         {chromQ.data && (
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            {trackLoci.length > 0 && (
+              <button
+                type="button"
+                onClick={openUcsc}
+                onMouseEnter={() => setUcscHover(true)}
+                onMouseLeave={() => setUcscHover(false)}
+                title="Open the current view in the UCSC Genome Browser (hg38). UCSC shows one chromosome at a time — the chromosome under the view opens."
+                className="input input-bordered input-xs inline-flex items-center gap-1.5 w-auto text-base-content/70 hover:bg-base-200 cursor-pointer"
+              >
+                <ExternalLink className="size-3.5" />
+                UCSC
+              </button>
+            )}
             <TrackControls
               chromNames={chromQ.data.names}
               onChromSelect={(chr) => trackRef.current?.zoomToChrom(chr)}
