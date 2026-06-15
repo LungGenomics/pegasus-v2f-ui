@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useLocation } from "react-router";
 import { RotateCw } from "lucide-react";
 import { Navbar } from "./components/layout/navbar";
@@ -10,6 +10,8 @@ import {
   subscribeDataSource,
   loadSharedDuckDB,
   createNewDuckDB,
+  subscribeBootProgress,
+  getBootProgress,
 } from "./data/select";
 import { hasSavedDuckDB } from "./data/opfs";
 import { captureSyncRedirect } from "./data/syncClient";
@@ -71,6 +73,11 @@ export function App() {
   const [attached, setAttached] = useState(isAttached());
   const [bootError, setBootError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const bootProgress = useSyncExternalStore(
+    subscribeBootProgress,
+    getBootProgress,
+    getBootProgress,
+  );
 
   useEffect(() => {
     // Unsupported browsers render the block screen and never boot the DB —
@@ -108,9 +115,33 @@ export function App() {
   }
 
   if (!booted) {
+    const mb = (n: number) => (n / 1048576).toFixed(1);
+    const pct =
+      bootProgress?.total != null && bootProgress.total > 0
+        ? Math.round((bootProgress.loaded / bootProgress.total) * 100)
+        : 0;
+    const caption = bootProgress
+      ? bootProgress.total
+        ? `${mb(bootProgress.loaded)} / ${mb(bootProgress.total)} MB · ${pct}%`
+        : `${mb(bootProgress.loaded)} MB`
+      : "connecting to data…";
     return (
-      <div className="min-h-screen bg-base-100 flex items-center justify-center">
-        <div className="text-sm text-base-content/60">Loading…</div>
+      <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center gap-4 bg-base-100/95 backdrop-blur-sm">
+        <span className="text-sm font-medium text-base-content/80">
+          Loading database…
+        </span>
+        <div className="flex flex-col items-center gap-1 w-72">
+          <div className="h-1 w-full bg-base-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary transition-[width]"
+              // Width is data-driven (indeterminate downloads sit at 0).
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="text-xs text-base-content/50 tabular-nums">
+            {caption}
+          </span>
+        </div>
       </div>
     );
   }

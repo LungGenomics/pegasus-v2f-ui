@@ -86,6 +86,27 @@ function notify() {
   for (const l of _listeners) l();
 }
 
+// --- Initial shared-DB download progress -------------------------------------
+// Streamed byte progress for the first-load pull of the shared DuckDB from R2,
+// so the boot screen can show a real progress bar instead of a static spinner.
+// `total` is null when the server didn't send Content-Length (indeterminate).
+export type BootProgress = { loaded: number; total: number | null } | null;
+
+let _bootProgress: BootProgress = null;
+const _progressListeners = new Set<() => void>();
+
+export function getBootProgress(): BootProgress {
+  return _bootProgress;
+}
+export function subscribeBootProgress(listener: () => void): () => void {
+  _progressListeners.add(listener);
+  return () => _progressListeners.delete(listener);
+}
+function setBootProgress(p: BootProgress) {
+  _bootProgress = p;
+  for (const l of _progressListeners) l();
+}
+
 // Async bootstrap — call once at app mount. If OPFS has a previously-saved
 // .duckdb, attach it. Otherwise leave the no-source sentinel in place; the
 // app shows the picker landing.
@@ -242,7 +263,36 @@ export async function loadSharedDuckDB(): Promise<void> {
       `Couldn't fetch shared DB '${ptr.current_key}' (${dbRes.status} ${dbRes.statusText})`,
     );
   }
-  const buf = await dbRes.arrayBuffer();
+  // Stream the body so the boot screen can show download progress. Fall back
+  // to a plain arrayBuffer() read if the body isn't a readable stream.
+  const total = Number(dbRes.headers.get("Content-Length")) || null;
+  let buf: ArrayBuffer;
+  const reader = dbRes.body?.getReader();
+  if (reader) {
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    setBootProgress({ loaded: 0, total });
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.length;
+        setBootProgress({ loaded, total });
+      }
+    } finally {
+      setBootProgress(null); // clear so a later boot path doesn't show stale bytes
+    }
+    const merged = new Uint8Array(loaded);
+    let off = 0;
+    for (const c of chunks) {
+      merged.set(c, off);
+      off += c.length;
+    }
+    buf = merged.buffer;
+  } else {
+    buf = await dbRes.arrayBuffer();
+  }
   log(`fetched ${buf.byteLength} bytes; wrapping as File`);
   const file = new File([buf], "shared.duckdb", {
     type: "application/octet-stream",
