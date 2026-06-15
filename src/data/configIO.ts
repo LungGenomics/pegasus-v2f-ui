@@ -253,3 +253,43 @@ export async function importSourceConfig(
     mappings,
   };
 }
+
+/** Per-config outcome of a batch import. */
+export interface BatchImportEntry {
+  name: string;
+  ok: boolean;
+  rows?: number;
+  mappings?: number;
+  mappingErrors?: string[];
+  error?: string;
+}
+
+/** Import several source configs in sequence. Each is independent — a failing
+ *  one (bad shape, duplicate name, ingest error) is captured and the rest still
+ *  run. Order is as given; it does NOT affect the eventual `rebuildDerived`
+ *  (which always builds loci before evidence). */
+export async function importSourceConfigs(
+  raws: unknown[],
+  actor: string | null = null,
+): Promise<BatchImportEntry[]> {
+  const out: BatchImportEntry[] = [];
+  for (const raw of raws) {
+    const name =
+      (raw && typeof raw === "object"
+        ? (raw as SourceConfigJson).source?.name
+        : undefined) ?? "?";
+    try {
+      const r = await importSourceConfig(raw, actor);
+      out.push({
+        name: r.name,
+        ok: true,
+        rows: r.rows,
+        mappings: r.mappings.inserted,
+        mappingErrors: r.mappings.errors,
+      });
+    } catch (e) {
+      out.push({ name, ok: false, error: (e as Error).message });
+    }
+  }
+  return out;
+}

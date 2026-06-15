@@ -9,22 +9,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 import { Plus, PanelLeftClose, PanelLeftOpen, Braces } from "lucide-react";
 import { listSources } from "../data/sourceOps";
-import { importSourceConfig } from "../data/configIO";
-import { JsonIoModal } from "../components/json-io";
+import { SourceConfigImportModal } from "../components/source-config-import";
 import { useSyncSession } from "../hooks/useSyncSession";
 import { AddSourcePanel } from "./sources-add";
 import { SourceWorkArea } from "./source-workarea";
-
-const CONFIG_TEMPLATE = {
-  source: {
-    name: "my_source",
-    source_type: "googlesheets",
-    url: "https://docs.google.com/spreadsheets/d/…/edit",
-    skip_rows: 0,
-  },
-  transforms: [],
-  mappings: [],
-};
 
 export function SourcesPage() {
   const [params, setParams] = useSearchParams();
@@ -167,14 +155,10 @@ export function SourcesPage() {
       </div>
 
       {configOpen && (
-        <JsonIoModal
-          title="Import source from config"
-          exportValue={CONFIG_TEMPLATE}
-          onApply={async (parsed) => {
-            const r = await importSourceConfig(parsed, actor);
-            await qc.invalidateQueries({ queryKey: ["config"] });
-            setParams({ source: r.name });
-            return { applied: r.mappings.inserted, errors: r.mappings.errors };
+        <SourceConfigImportModal
+          actor={actor}
+          onImported={() => {
+            void qc.invalidateQueries({ queryKey: ["config"] });
           }}
           onClose={() => setConfigOpen(false)}
         />
