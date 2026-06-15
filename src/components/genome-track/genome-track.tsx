@@ -269,11 +269,15 @@ export const GenomeTrack = forwardRef<GenomeTrackHandle, GenomeTrackProps>(funct
     [hitTest],
   );
 
-  // Auto-zoom to selected locus (deselect does NOT change zoom)
+  // Auto-zoom to selected locus; deselecting (e.g. "Back to list") returns the
+  // track to the full-genome view.
   const zoomedToSelection = useRef<string | null>(null);
   const zoomedWithWidth = useRef<number | null>(null);
   useEffect(() => {
     if (!selectedLocusId) {
+      // Only reset if we'd auto-zoomed to a selection — don't override the
+      // initial full-genome mount or a manual reset (both leave the ref null).
+      if (zoomedToSelection.current !== null) resetZoom();
       zoomedToSelection.current = null;
       zoomedWithWidth.current = null;
       return;
@@ -288,7 +292,7 @@ export const GenomeTrack = forwardRef<GenomeTrackHandle, GenomeTrackProps>(funct
       zoomedToSelection.current = selectedLocusId;
       zoomedWithWidth.current = containerWidth;
     }
-  }, [selectedLocusId, sortedLoci, containerWidth]);
+  }, [selectedLocusId, sortedLoci, containerWidth, resetZoom]);
 
   // Full reset: clear selection + zoom to full genome
   const fullReset = useCallback(() => {
