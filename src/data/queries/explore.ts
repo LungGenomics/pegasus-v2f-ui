@@ -33,12 +33,16 @@ export interface LocusRow {
 
 export async function listLoci(): Promise<LocusRow[]> {
   const ds = getDataSource();
-  return ds.query<LocusRow>({
-    sql:
-      "SELECT locus_id, locus_name, chromosome, start_position, end_position, " +
-      "       lead_rsid, lead_pvalue, n_signals, n_candidate_genes, source_tag " +
-      "FROM main.loci ORDER BY chromosome, start_position",
-  });
+  try {
+    return await ds.query<LocusRow>({
+      sql:
+        "SELECT locus_id, locus_name, chromosome, start_position, end_position, " +
+        "       lead_rsid, lead_pvalue, n_signals, n_candidate_genes, source_tag " +
+        "FROM main.loci ORDER BY chromosome, start_position",
+    });
+  } catch {
+    return []; // derived layer not built yet (fresh/cleared DB)
+  }
 }
 
 export interface GeneRow {
@@ -56,21 +60,25 @@ export interface GeneRow {
  *  coordinates / biotype. */
 export async function listImplicatedGenes(): Promise<GeneRow[]> {
   const ds = getDataSource();
-  return ds.query<GeneRow>({
-    sql:
-      "SELECT le.gene_symbol, " +
-      "       ANY_VALUE(g.chromosome) AS chromosome, " +
-      "       ANY_VALUE(g.start) AS start, " +
-      "       ANY_VALUE(g.gene_type) AS gene_type, " +
-      "       COUNT(DISTINCT le.locus_id) AS n_loci, " +
-      "       COUNT(*) FILTER (WHERE le.match_type <> 'candidate') AS n_evidence, " +
-      "       COUNT(DISTINCT le.evidence_category) " +
-      "         FILTER (WHERE le.match_type <> 'candidate') AS n_categories " +
-      "FROM main.locus_evidence le " +
-      "LEFT JOIN main.gene_reference g ON g.gene_symbol = le.gene_symbol " +
-      "WHERE le.gene_symbol IS NOT NULL " +
-      "GROUP BY le.gene_symbol ORDER BY n_loci DESC, le.gene_symbol",
-  });
+  try {
+    return await ds.query<GeneRow>({
+      sql:
+        "SELECT le.gene_symbol, " +
+        "       ANY_VALUE(g.chromosome) AS chromosome, " +
+        "       ANY_VALUE(g.start) AS start, " +
+        "       ANY_VALUE(g.gene_type) AS gene_type, " +
+        "       COUNT(DISTINCT le.locus_id) AS n_loci, " +
+        "       COUNT(*) FILTER (WHERE le.match_type <> 'candidate') AS n_evidence, " +
+        "       COUNT(DISTINCT le.evidence_category) " +
+        "         FILTER (WHERE le.match_type <> 'candidate') AS n_categories " +
+        "FROM main.locus_evidence le " +
+        "LEFT JOIN main.gene_reference g ON g.gene_symbol = le.gene_symbol " +
+        "WHERE le.gene_symbol IS NOT NULL " +
+        "GROUP BY le.gene_symbol ORDER BY n_loci DESC, le.gene_symbol",
+    });
+  } catch {
+    return []; // derived layer not built yet (fresh/cleared DB)
+  }
 }
 
 export interface TraitRow {
@@ -83,18 +91,29 @@ export interface TraitRow {
 
 export async function listTraits(): Promise<TraitRow[]> {
   const ds = getDataSource();
-  return ds.query<TraitRow>({
-    sql:
-      "SELECT t.id AS trait_id, t.label, " +
-      "       COUNT(DISTINCT le.locus_id) AS n_loci, " +
-      "       COUNT(DISTINCT le.gene_symbol) AS n_genes, " +
-      "       COUNT(le.locus_id) FILTER (WHERE le.match_type <> 'candidate') AS n_evidence " +
-      "FROM config.traits t " +
-      // Loci are trait-scoped — count the trait's OWN loci/evidence (same-trait).
-      "LEFT JOIN main.locus_evidence le " +
-      "  ON le.locus_trait_id = t.id AND NOT le.is_cross_trait " +
-      "GROUP BY t.id, t.label ORDER BY n_loci DESC, t.label",
-  });
+  try {
+    return await ds.query<TraitRow>({
+      sql:
+        "SELECT t.id AS trait_id, t.label, " +
+        "       COUNT(DISTINCT le.locus_id) AS n_loci, " +
+        "       COUNT(DISTINCT le.gene_symbol) AS n_genes, " +
+        "       COUNT(le.locus_id) FILTER (WHERE le.match_type <> 'candidate') AS n_evidence " +
+        "FROM config.traits t " +
+        // Loci are trait-scoped — count the trait's OWN loci/evidence (same-trait).
+        "LEFT JOIN main.locus_evidence le " +
+        "  ON le.locus_trait_id = t.id AND NOT le.is_cross_trait " +
+        "GROUP BY t.id, t.label ORDER BY n_loci DESC, t.label",
+    });
+  } catch {
+    // Derived layer (main.locus_evidence) not built yet — list traits from
+    // config alone with zero counts, so the browse/landing still works on a
+    // fresh-or-cleared DB (mirrors landingStats / listLoci resilience).
+    return ds.query<TraitRow>({
+      sql:
+        "SELECT id AS trait_id, label, 0 AS n_loci, 0 AS n_genes, 0 AS n_evidence " +
+        "FROM config.traits ORDER BY label",
+    });
+  }
 }
 
 // (Studies are not an Explore browse entity — a "study" is a proxy for a
@@ -368,12 +387,13 @@ export async function locusGenes(
     cell_type: string | null;
     ancestry: string | null;
     sex: string | null;
+    detail: string | null;
   }>({
     sql:
       "SELECT gene_symbol, match_type, evidence_category, source_tag, " +
       "       primary_value, secondary_value, " +
       "       primary_value_label, secondary_value_label, " +
-      "       tissue, cell_type, ancestry, sex " +
+      "       tissue, cell_type, ancestry, sex, detail " +
       "FROM main.locus_evidence " +
       "WHERE locus_id = ? AND gene_symbol IS NOT NULL " +
       crossClause,
@@ -402,6 +422,7 @@ export async function locusGenes(
       if (r.cell_type != null) ev.cell_type = r.cell_type;
       if (r.ancestry != null) ev.ancestry = r.ancestry;
       if (r.sex != null) ev.sex = r.sex;
+      if (r.detail != null) ev.detail = r.detail;
       g.evidence.push(ev);
     }
   }
@@ -513,6 +534,7 @@ export interface GeneEvidenceRow {
   cell_type: string | null;
   ancestry: string | null;
   sex: string | null;
+  detail: string | null;
 }
 
 /** Evidence INSTANCES for a gene, across all its loci/traits — one row per
@@ -527,7 +549,7 @@ export async function geneEvidence(symbol: string): Promise<GeneEvidenceRow[]> {
       "SELECT le.evidence_category, le.source_tag, t.label AS trait_label, " +
       "       le.primary_value, le.secondary_value, " +
       "       le.primary_value_label, le.secondary_value_label, " +
-      "       le.tissue, le.cell_type, le.ancestry, le.sex " +
+      "       le.tissue, le.cell_type, le.ancestry, le.sex, le.detail " +
       "FROM main.locus_evidence le " +
       "LEFT JOIN config.traits t ON t.id = le.trait_id " +
       "WHERE le.gene_symbol = ? AND le.match_type <> 'candidate' " +

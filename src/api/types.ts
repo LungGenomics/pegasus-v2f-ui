@@ -134,6 +134,9 @@ export interface LocusGeneEvidence {
   cell_type?: string;
   ancestry?: string;
   sex?: string;
+  // Free-text annotation for qualitative evidence (disease name, mouse-KO
+  // phenotype, drug indication, …).
+  detail?: string;
 }
 
 // A gene at a locus + its evidence rows. The redesign dropped the computed

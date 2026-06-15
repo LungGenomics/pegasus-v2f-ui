@@ -330,6 +330,9 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
                     <span>{ev.ancestry}</span>
                   )}
                   {ev.sex && String(ev.sex) !== "-" && <span>{ev.sex}</span>}
+                  {ev.detail && String(ev.detail) !== "-" && (
+                    <span className="italic">{ev.detail}</span>
+                  )}
                 </div>
               </div>
             ))}

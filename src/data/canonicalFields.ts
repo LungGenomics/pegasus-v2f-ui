@@ -17,6 +17,10 @@ export const CANONICAL_FIELDS = [
   "cell_type",
   "ancestry",
   "sex",
+  // Free-text per-row annotation for qualitative evidence with no numeric value
+  // (e.g. a rare-disease name, a mouse-KO phenotype, an eQTL tissue, a drug
+  // indication). Never a match key; always optional.
+  "detail",
 ] as const;
 
 export type CanonicalField = (typeof CANONICAL_FIELDS)[number];

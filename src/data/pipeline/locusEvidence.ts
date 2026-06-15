@@ -33,6 +33,7 @@ const EVIDENCE_COLS = [
   "cell_type",
   "ancestry",
   "sex",
+  "detail",
   "primary_value",
   "secondary_value",
   "primary_value_label",

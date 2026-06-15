@@ -281,7 +281,7 @@ function GeneCategoryInstances({ items }: { items: GeneEvidenceRow[] }) {
     (r) => r.secondary_value != null && String(r.secondary_value) !== "-",
   );
   const ctx = (r: GeneEvidenceRow) =>
-    [r.tissue, r.cell_type, r.ancestry, r.sex]
+    [r.tissue, r.cell_type, r.ancestry, r.sex, r.detail]
       .filter((v) => v != null && String(v) !== "" && String(v) !== "-")
       .join(" / ");
   const fmt = (v: number | string | null) =>
