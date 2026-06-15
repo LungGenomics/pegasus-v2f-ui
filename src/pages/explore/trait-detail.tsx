@@ -143,6 +143,25 @@ function secondaryText(l: LocusRow, mode: LabelMode): string {
   return mode === "coords" ? cytobandText(l) : coordText(l);
 }
 
+/** Human description of what the locus label currently shows — for the row
+ *  tooltip. Gene-based modes note when they fell back to cytoband (no gene). */
+function labelKind(l: LocusRow, mode: LabelMode, byCatGene?: string | null): string {
+  switch (mode) {
+    case "coords":
+      return "Coordinates";
+    case "nearest":
+      return l.nearest_gene ? "Nearest gene" : "Cytoband (no nearest gene)";
+    case "top_gene":
+      return l.top_gene ? "Top gene" : "Cytoband (no top gene)";
+    case "top_gene_category":
+      return byCatGene
+        ? "Top gene for the selected evidence category"
+        : "Cytoband (no gene for the selected category)";
+    default:
+      return "Cytoband";
+  }
+}
+
 // Filters popover for the loci header: label mode (+ by-category sub-select)
 // and the definition-source filter. Keeps the header to one button; an
 // active-count badge surfaces non-default state. (Track controls stay separate.)
@@ -922,7 +941,10 @@ function LociPane({
           {/* Label + coords absorb all variable width and truncate, so the
               coverage strip + gene count keep a fixed column on every row. */}
           <span className="flex items-baseline gap-2 min-w-0 flex-1">
-            <span className="text-sm font-medium font-mono min-w-0 truncate">
+            <span
+              className="text-sm font-medium font-mono min-w-0 truncate"
+              title={labelKind(l, labelMode, byCatMap?.get(l.locus_id))}
+            >
               {labelText(l, labelMode, byCatMap?.get(l.locus_id))}
             </span>
             <span className="text-xs text-base-content/40 hidden sm:inline truncate">
