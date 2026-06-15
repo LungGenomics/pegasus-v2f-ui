@@ -51,7 +51,14 @@ function getConn(): Promise<duckdb.AsyncDuckDBConnection> {
   if (_connPromise) return _connPromise;
   _connPromise = (async () => {
     const db = await bootDuckDB();
-    return db.connect();
+    const conn = await db.connect();
+    // DuckDB-WASM runs in-memory with a hard heap cap (~3 GB, no disk spill).
+    // Disabling insertion-order preservation lets large joins/aggregations
+    // (e.g. the locus_evidence range-join fan-out during a rebuild) free
+    // intermediates instead of buffering them for output ordering — the app
+    // always sorts explicitly where order matters, so this is safe.
+    await conn.query("SET preserve_insertion_order=false");
+    return conn;
   })().catch((err) => {
     _connPromise = null;
     throw err;

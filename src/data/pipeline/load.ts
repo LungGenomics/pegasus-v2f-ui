@@ -52,7 +52,11 @@ async function fetchAndPrepare(source: ConfigSource): Promise<FetchedRaw> {
     const csvUrl = googleSheetsToCsvUrl(url, source.sheet);
     const bytes = await fetchBytes(csvUrl);
     const registerAs = `${source.name}.csv`;
-    const readExpr = `read_csv_auto(${strLit(registerAs)}, header=true, skip=${
+    // all_varchar: read every column as text. Type auto-detection samples only
+    // the first ~20k rows and would mis-type e.g. a chromosome column as BIGINT
+    // (chr 1–22) then fail on a later "X". Raw is provenance text; the
+    // coerce_numeric/math transforms cast what needs to be numeric downstream.
+    const readExpr = `read_csv_auto(${strLit(registerAs)}, header=true, all_varchar=true, skip=${
       source.skip_rows ?? 0
     })`;
     return { bytes, registerAs, readExpr };
@@ -64,7 +68,7 @@ async function fetchAndPrepare(source: ConfigSource): Promise<FetchedRaw> {
       sourceType === "tsv" || url.endsWith(".tsv") || url.endsWith(".txt");
     const registerAs = `${source.name}.${isTsv ? "tsv" : "csv"}`;
     const delim = isTsv ? "\t" : ",";
-    const readExpr = `read_csv_auto(${strLit(registerAs)}, header=true, delim=${strLit(delim)}, skip=${
+    const readExpr = `read_csv_auto(${strLit(registerAs)}, header=true, all_varchar=true, delim=${strLit(delim)}, skip=${
       source.skip_rows ?? 0
     })`;
     return { bytes, registerAs, readExpr };
@@ -97,7 +101,7 @@ async function prepareFromFile(
   const registerAs = `${source.name}.${ext}`;
   const readExpr = isParquet
     ? `read_parquet(${strLit(registerAs)})`
-    : `read_csv_auto(${strLit(registerAs)}, header=true, delim=${strLit(
+    : `read_csv_auto(${strLit(registerAs)}, header=true, all_varchar=true, delim=${strLit(
         isTsv ? "\t" : ",",
       )}, skip=${source.skip_rows ?? 0})`;
   return { bytes, registerAs, readExpr };
