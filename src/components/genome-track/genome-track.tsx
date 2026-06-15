@@ -38,6 +38,8 @@ export type GenomeTrackHandle = {
 export type GenomeTrackProps = {
   loci: TrackLocus[];
   selectedLocusId?: string;
+  /** Locus hovered in the loci list — its marker grows + shows its label. */
+  hoveredLocusId?: string;
   onLocusSelect: (id: string | null) => void;
   onViewChange?: (view: ViewState) => void;
   chromNames: string[];
@@ -52,6 +54,7 @@ export type GenomeTrackProps = {
 export const GenomeTrack = forwardRef<GenomeTrackHandle, GenomeTrackProps>(function GenomeTrack({
   loci,
   selectedLocusId,
+  hoveredLocusId,
   onLocusSelect,
   onViewChange: onViewChangeProp,
   chromNames,
@@ -397,6 +400,7 @@ export const GenomeTrack = forwardRef<GenomeTrackHandle, GenomeTrackProps>(funct
             layout={layout}
             barY={BAR_Y}
             selectedLocusId={selectedLocusId}
+            hoveredLocusId={hoveredLocusId}
             traitColors={traitColors}
           />
         </g>

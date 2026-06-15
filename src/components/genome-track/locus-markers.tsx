@@ -7,6 +7,10 @@ type Props = {
   layout: TrackLayout;
   barY: number;
   selectedLocusId?: string;
+  /** Locus under the cursor in the loci list — its marker grows slightly and
+   *  shows its label (even when zoomed out / clustered), mirroring the list↔
+   *  track link. No glow/shadow, just a size bump. */
+  hoveredLocusId?: string;
   traitColors?: Record<string, string>;
 };
 
@@ -24,6 +28,7 @@ export function LocusMarkers({
   layout,
   barY,
   selectedLocusId,
+  hoveredLocusId,
   traitColors,
 }: Props) {
   return (
@@ -37,26 +42,51 @@ export function LocusMarkers({
             traits.size === 1
               ? (traitColors?.[traits.values().next().value!] ?? DEFAULT_COLOR)
               : MIXED_COLOR;
+          // The hovered locus may be folded into this cluster — surface it: grow
+          // the cluster marker and show that locus's label instead of the count.
+          const hoveredLocus = hoveredLocusId
+            ? item.loci.find((l) => l.id === hoveredLocusId)
+            : undefined;
+          const isHov = !!hoveredLocus;
+          const w = isHov ? 9 : TRI_WIDTH;
+          const h = isHov ? 8 : TRI_HEIGHT;
           const tipY = barY - 2;
-          const topY = tipY - TRI_HEIGHT;
+          const topY = tipY - h;
 
           // Triangle
-          const tri = `M ${cx - TRI_WIDTH / 2} ${topY} L ${cx + TRI_WIDTH / 2} ${topY} L ${cx} ${tipY} Z`;
+          const tri = `M ${cx - w / 2} ${topY} L ${cx + w / 2} ${topY} L ${cx} ${tipY} Z`;
 
           return (
             <g key={`cluster-${i}`}>
-              <path d={tri} fill={color} opacity={0.5} />
-              {/* Count label above triangle */}
-              <text
-                x={cx}
-                y={topY - 3}
-                textAnchor="middle"
-                className="fill-base-content/50"
-                fontSize={7}
-                fontWeight={600}
-              >
-                {item.count}
-              </text>
+              <path d={tri} fill={color} opacity={isHov ? 0.9 : 0.5} />
+              {isHov ? (
+                /* Hovered: show the locus's label vertically, matching the
+                   individual-marker labels. */
+                <text
+                  x={0}
+                  y={0}
+                  textAnchor="start"
+                  dominantBaseline="central"
+                  className="fill-base-content/80"
+                  fontSize={8}
+                  fontWeight={600}
+                  transform={`translate(${cx}, ${topY - 3}) rotate(-90)`}
+                >
+                  {hoveredLocus!.label}
+                </text>
+              ) : (
+                /* Default: the cluster count, horizontal above the triangle. */
+                <text
+                  x={cx}
+                  y={topY - 3}
+                  textAnchor="middle"
+                  className="fill-base-content/50"
+                  fontSize={7}
+                  fontWeight={600}
+                >
+                  {item.count}
+                </text>
+              )}
             </g>
           );
         }
@@ -65,12 +95,13 @@ export function LocusMarkers({
         const midBp = (locus.start + locus.end) / 2;
         const cx = layout.bpToPixel(locus.chr, midBp);
         const isSelected = locus.id === selectedLocusId;
+        const isHovered = !isSelected && locus.id === hoveredLocusId;
         const color = isSelected
           ? "#000000"
           : (traitColors?.[locus.trait ?? ""] ?? DEFAULT_COLOR);
-        const opacity = isSelected ? 1.0 : 0.7;
-        const w = isSelected ? 10 : TRI_WIDTH;
-        const h = isSelected ? 9 : TRI_HEIGHT;
+        const opacity = isSelected || isHovered ? 1.0 : 0.7;
+        const w = isSelected ? 10 : isHovered ? 9 : TRI_WIDTH;
+        const h = isSelected ? 9 : isHovered ? 8 : TRI_HEIGHT;
         const tipY = barY - 2;
         const topY = tipY - h;
 
@@ -79,16 +110,22 @@ export function LocusMarkers({
         return (
           <g key={locus.id}>
             <path d={tri} fill={color} opacity={opacity} />
-            {/* Label (shown when zoomed in or selected) */}
-            {(isSelected || layout.bpPerPixel < 500_000) && (
+            {/* Label (shown when zoomed in, selected, or hovered in the list) */}
+            {(isSelected || isHovered || layout.bpPerPixel < 500_000) && (
               <text
                 x={0}
                 y={0}
                 textAnchor="start"
                 dominantBaseline="central"
                 fill={isSelected ? "#000000" : undefined}
-                className={isSelected ? undefined : "fill-base-content/50"}
-                fontSize={isSelected ? 9 : 7}
+                className={
+                  isSelected
+                    ? undefined
+                    : isHovered
+                      ? "fill-base-content/80"
+                      : "fill-base-content/50"
+                }
+                fontSize={isSelected ? 9 : isHovered ? 8 : 7}
                 fontWeight={600}
                 transform={`translate(${cx}, ${topY - 3}) rotate(-90)`}
               >
