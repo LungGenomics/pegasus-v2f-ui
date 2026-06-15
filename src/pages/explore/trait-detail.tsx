@@ -82,7 +82,9 @@ function sortLoci(loci: LocusRow[], key: SortKey, dir: SortDir): LocusRow[] {
   if (key === "position") return dir === "asc" ? loci : [...loci].reverse();
   const sign = dir === "asc" ? 1 : -1;
   const val = (l: LocusRow) =>
-    key === "evidence" ? (l.n_evidence ?? 0) : (l.n_candidate_genes ?? 0);
+    key === "evidence"
+      ? (l.n_gene_evidence ?? 0) // gene-level only — exclude locus-wide GWAS fan-out
+      : (l.n_candidate_genes ?? 0);
   return [...loci].sort((a, b) => (val(a) - val(b)) * sign);
 }
 
@@ -350,11 +352,11 @@ export function TraitDetail({ traitId }: { traitId: string }) {
   // source filter stays per-trait (selectedSources) — sources differ by trait.
   const [sortKey, setSortKey] = usePersistentState<SortKey>(
     "pegasus-v2f.trait.sortKey",
-    "position",
+    "evidence",
   );
   const [sortDir, setSortDir] = usePersistentState<SortDir>(
     "pegasus-v2f.trait.sortDir",
-    "asc",
+    "desc",
   );
   // Evidence-only view: hide loci with no non-candidate evidence (and, in the
   // heatmap, candidate-only genes). Default on — the credible-set view (all
@@ -449,6 +451,9 @@ export function TraitDetail({ traitId }: { traitId: string }) {
     return m;
   }, [sourceTags]);
 
+  // Locus under the cursor in the list — highlights its track marker. Local
+  // (not URL) state: ephemeral hover, no navigation/history.
+  const [hoveredLocusId, setHoveredLocusId] = useState<string | null>(null);
   const selectedLocusId = searchParams.get("locus") ?? undefined;
   const setSelectedLocus = useCallback(
     (locusId: string | null) => {
@@ -674,6 +679,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
                 : null
             }
             selectedLocusId={selectedLocusId}
+            hoveredLocusId={hoveredLocusId ?? undefined}
             onLocusSelect={setSelectedLocus}
             onViewChange={handleViewChange}
             chromNames={chromQ.data.names}
@@ -721,7 +727,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
         />
         <label
           className="flex items-center gap-1.5 text-xs text-base-content/60 cursor-pointer shrink-0"
-          title="Show only loci and genes with evidence"
+          title="Show only loci and genes with evidence. Within a locus, shows just genes with gene-specific evidence — hides positional candidates and genes whose only signal is locus-wide (e.g. GWAS)."
         >
           <input
             type="checkbox"
@@ -770,6 +776,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
         listRef={listRef}
         selectedLocusId={selectedLocusId}
         onSelect={setSelectedLocus}
+        onHoverLocus={setHoveredLocusId}
         sourceColors={multiSource ? sourceColors : undefined}
         labelMode={labelMode}
         byCatMap={byCatMap}
@@ -836,6 +843,7 @@ function LociPane({
   listRef,
   selectedLocusId,
   onSelect,
+  onHoverLocus,
   sourceColors,
   labelMode,
   byCatMap,
@@ -849,6 +857,7 @@ function LociPane({
   listRef: React.Ref<HTMLDivElement>;
   selectedLocusId?: string;
   onSelect: (id: string | null) => void;
+  onHoverLocus: (id: string | null) => void;
   sourceColors?: Record<string, string>;
   labelMode: LabelMode;
   byCatMap: Map<string, string> | null;
@@ -901,6 +910,8 @@ function LociPane({
           data-locus-idx={i}
           className="w-full flex items-center gap-2 px-3 py-2 text-left border-t border-base-300 -mt-px first:border-t-0 first:mt-0 hover:bg-base-200/50"
           onClick={() => onSelect(l.locus_id)}
+          onMouseEnter={() => onHoverLocus(l.locus_id)}
+          onMouseLeave={() => onHoverLocus(null)}
         >
           {sourceColors?.[l.source_tag ?? ""] && (
             <span
@@ -926,12 +937,17 @@ function LociPane({
               categories={orderedCategories}
             />
           )}
-          <span
-            className="text-xs text-base-content/40 tabular-nums shrink-0 w-16 text-right"
-            title={evidenceOnly ? "Genes with evidence" : "Candidate genes"}
-          >
-            {(evidenceOnly ? l.n_evidence_genes : l.n_candidate_genes) ?? 0} genes
-          </span>
+          {(() => {
+            const n = (evidenceOnly ? l.n_evidence_genes : l.n_candidate_genes) ?? 0;
+            return (
+              <span
+                className="text-xs text-base-content/40 tabular-nums shrink-0 w-16 text-right"
+                title={evidenceOnly ? "Genes with evidence" : "Candidate genes"}
+              >
+                {n} gene{n === 1 ? "" : "s"}
+              </span>
+            );
+          })()}
         </button>
       ))}
       </div>

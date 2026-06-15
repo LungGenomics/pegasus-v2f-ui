@@ -123,6 +123,10 @@ export interface Effector {
 export interface LocusGeneEvidence {
   evidence_category: string;
   source_tag: string;
+  /** 'gene' = gene-specific evidence; 'position' = locus-level variant evidence
+   *  (GWAS/FM/COLOC) fanned to every candidate gene. Drives the evidence-only
+   *  gene filter — a gene "has evidence" only via gene-level rows. */
+  match_type?: string;
   // Open per-category values + their (optional) labels. Effect direction/etc.
   // lives in secondary_value, not its own field.
   primary_value?: number | string;

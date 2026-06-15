@@ -42,10 +42,16 @@ export function EvidenceHeatmap({
 }: Props) {
   const categoryKeys = Object.keys(categories);
 
-  // Candidate-only genes (positional overlaps with no evidence) carry an empty
-  // evidence[] (the 'candidate' stub rows). Drop them when evidenceOnly.
+  // In evidence-only mode keep genes that have GENE-LEVEL evidence
+  // (match_type='gene'). Candidate-only genes have empty evidence[]; genes whose
+  // only rows are locus-level variant evidence (GWAS/FM/COLOC fanned to the whole
+  // locus) aren't gene-resolved, so they're filtered out here too — the GWAS
+  // signal stays a locus property, surfaced via the still-shown genes' columns.
   const visibleGenes = useMemo(
-    () => (evidenceOnly ? genes.filter((g) => g.evidence.length > 0) : genes),
+    () =>
+      evidenceOnly
+        ? genes.filter((g) => g.evidence.some((e) => e.match_type === "gene"))
+        : genes,
     [genes, evidenceOnly],
   );
   const hiddenCount = genes.length - visibleGenes.length;
@@ -197,7 +203,10 @@ export function EvidenceHeatmap({
   return (
     <div ref={containerRef} className="overflow-x-auto relative">
       {onEvidenceOnlyChange && (
-        <label className="flex items-center gap-1.5 text-xs text-base-content/60 cursor-pointer mb-2 w-fit">
+        <label
+          className="flex items-center gap-1.5 text-xs text-base-content/60 cursor-pointer mb-2 w-fit"
+          title="Show only genes with gene-specific evidence — hides positional candidates and genes whose only signal is locus-wide (e.g. GWAS)."
+        >
           <input
             type="checkbox"
             className="toggle toggle-xs"
@@ -324,6 +333,21 @@ export function EvidenceHeatmap({
                   >
                     {ev.source_tag}
                   </Link>
+                  {ev.match_type === "position" ? (
+                    <span
+                      className="badge badge-ghost badge-xs"
+                      title="Variant evidence implicating the whole locus — fanned to every candidate gene, not specific to this gene."
+                    >
+                      locus-wide
+                    </span>
+                  ) : ev.match_type === "gene" ? (
+                    <span
+                      className="badge badge-ghost badge-xs"
+                      title="Evidence mapped specifically to this gene."
+                    >
+                      gene-specific
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-base-content/60">
                   {ev.primary_value != null && String(ev.primary_value) !== "-" && (

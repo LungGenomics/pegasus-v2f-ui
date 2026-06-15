@@ -7,6 +7,19 @@
 import { getDataSource } from "../select";
 import type { LocusGene, LocusGeneEvidence } from "../../api/types";
 
+// Natural chromosome order (chr1 < chr2 < … < chr22 < chrX < chrY < chrM),
+// not lexicographic (which puts chr10 before chr2). Strips an optional "chr"
+// prefix, maps the numeric autosomes via CAST and X/Y/M to 23/24/25. Pass the
+// chromosome column expression (e.g. "l.chromosome").
+function chromOrder(col: string): string {
+  const c = `regexp_replace(${col}, '^chr', '')`;
+  return (
+    `CASE ${c} ` +
+    `WHEN 'X' THEN 23 WHEN 'Y' THEN 24 WHEN 'M' THEN 25 WHEN 'MT' THEN 25 ` +
+    `ELSE TRY_CAST(${c} AS INTEGER) END`
+  );
+}
+
 export interface LocusRow {
   locus_id: string;
   locus_name: string | null;
@@ -17,12 +30,15 @@ export interface LocusRow {
   lead_pvalue: number | null;
   n_signals: number | null;
   n_candidate_genes: number | null;
-  /** Same-trait non-candidate evidence rows at this locus. Only populated by
-   *  traitLoci() (for the evidence-count sort). */
+  /** Same-trait non-candidate evidence rows at this locus — gene-level OR
+   *  locus-level (e.g. a GWAS signal). >0 keeps the locus visible in
+   *  evidence-only mode. Only populated by traitLoci(). */
   n_evidence?: number | null;
-  /** Distinct genes with same-trait non-candidate evidence at this locus — the
-   *  gene count shown when the loci list is in "Evidence only" mode. Only
-   *  populated by traitLoci(). */
+  /** GENE-LEVEL (match_type='gene') evidence rows only — drives the evidence
+   *  sort (locus-level GWAS/FM/COLOC fan-out is excluded). traitLoci() only. */
+  n_gene_evidence?: number | null;
+  /** Distinct genes with gene-level evidence at this locus — the gene count
+   *  shown when the loci list is in "Evidence only" mode. traitLoci() only. */
   n_evidence_genes?: number | null;
   source_tag: string | null;
   /** Gene nearest the locus's lead/source variant (window-midpoint fallback
@@ -42,7 +58,7 @@ export async function listLoci(): Promise<LocusRow[]> {
       sql:
         "SELECT locus_id, locus_name, chromosome, start_position, end_position, " +
         "       lead_rsid, lead_pvalue, n_signals, n_candidate_genes, source_tag " +
-        "FROM main.loci ORDER BY chromosome, start_position",
+        `FROM main.loci ORDER BY ${chromOrder("chromosome")} NULLS LAST, start_position`,
     });
   } catch {
     return []; // derived layer not built yet (fresh/cleared DB)
@@ -201,12 +217,21 @@ export async function traitLoci(
       "SELECT l.locus_id, l.locus_name, l.chromosome, " +
       "       l.start_position, l.end_position, l.lead_rsid, l.lead_pvalue, " +
       "       l.n_signals, l.n_candidate_genes, l.source_tag, " +
+      // n_evidence: ANY non-candidate evidence (gene-level OR locus-level, e.g.
+      // a GWAS signal) — keeps a locus from being hidden in evidence-only mode.
       "       (SELECT COUNT(*) FROM main.locus_evidence le4 " +
       "          WHERE le4.locus_id = l.locus_id AND NOT le4.is_cross_trait " +
       "            AND le4.match_type <> 'candidate') AS n_evidence, " +
+      // GENE-LEVEL only (match_type='gene'): variant-centric evidence (GWAS/FM/
+      // COLOC) is locus-level — it fans to every candidate gene, so it must not
+      // count toward per-gene metrics. n_gene_evidence drives the evidence sort;
+      // n_evidence_genes the "N genes" display.
+      "       (SELECT COUNT(*) FROM main.locus_evidence le6 " +
+      "          WHERE le6.locus_id = l.locus_id AND NOT le6.is_cross_trait " +
+      "            AND le6.match_type = 'gene') AS n_gene_evidence, " +
       "       (SELECT COUNT(DISTINCT le5.gene_symbol) FROM main.locus_evidence le5 " +
       "          WHERE le5.locus_id = l.locus_id AND NOT le5.is_cross_trait " +
-      "            AND le5.match_type <> 'candidate' " +
+      "            AND le5.match_type = 'gene' " +
       "            AND le5.gene_symbol IS NOT NULL) AS n_evidence_genes, " +
       "       (SELECT gene_symbol FROM ( " +
       "          SELECT le2.gene_symbol, " +
@@ -214,7 +239,7 @@ export async function traitLoci(
       "                 COUNT(*) AS ninst " +
       "            FROM main.locus_evidence le2 " +
       "           WHERE le2.locus_id = l.locus_id AND NOT le2.is_cross_trait " +
-      "             AND le2.match_type <> 'candidate' " +
+      "             AND le2.match_type = 'gene' " +
       "             AND le2.gene_symbol IS NOT NULL " +
       "           GROUP BY le2.gene_symbol " +
       // Rank by breadth (distinct categories), then instance count — both
@@ -231,7 +256,7 @@ export async function traitLoci(
       "         WHERE g.chromosome = l.chromosome) AS nearest_gene " +
       "FROM main.loci l " +
       "WHERE l.trait_id = ?" + sourceFilter + " " +
-      "ORDER BY l.chromosome, l.start_position",
+      `ORDER BY ${chromOrder("l.chromosome")} NULLS LAST, l.start_position`,
     params: [traitId, ...sourceTags],
   });
 }
@@ -419,6 +444,7 @@ export async function locusGenes(
       const ev: LocusGeneEvidence = {
         evidence_category: r.evidence_category,
         source_tag: r.source_tag ?? "",
+        match_type: r.match_type,
       };
       if (r.primary_value != null) ev.primary_value = r.primary_value;
       if (r.secondary_value != null) ev.secondary_value = r.secondary_value;
@@ -507,7 +533,7 @@ export async function geneLoci(symbol: string): Promise<LocusRow[]> {
       "       l.start_position, l.end_position, l.lead_rsid, l.lead_pvalue, " +
       "       l.n_signals, l.n_candidate_genes, l.source_tag " +
       "FROM main.loci l JOIN main.locus_evidence le ON le.locus_id = l.locus_id " +
-      "WHERE le.gene_symbol = ? ORDER BY l.chromosome, l.start_position",
+      `WHERE le.gene_symbol = ? ORDER BY ${chromOrder("l.chromosome")} NULLS LAST, l.start_position`,
     params: [symbol],
   });
 }
