@@ -135,7 +135,9 @@ export async function ensureColumnScopeTraits(
     const mappings = await listMappingsForSource(src.id);
     const colMappings = mappings.filter(
       (m) =>
-        m.target === "evidence" &&
+        // Both evidence AND loci column-scope mappings resolve trait by label
+        // (loci drop variants with a NULL trait_id), so register labels for both.
+        (m.target === "evidence" || m.target === "loci") &&
         m.trait_scope === "column" &&
         m.trait_column &&
         !m.trait_column.trait_id_lookup,

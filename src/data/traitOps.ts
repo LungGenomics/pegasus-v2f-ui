@@ -395,17 +395,23 @@ export async function pruneJunkTraits(): Promise<number> {
   const evidenceClause = (await tableExists("evidence"))
     ? "AND NOT EXISTS (SELECT 1 FROM main.evidence e WHERE e.trait_id = t.id) "
     : "";
+  // Loci are trait-scoped too; a column-scope LOCI trait isn't in mapping_traits
+  // and produces no evidence rows, so it's only protected once its loci exist
+  // (prune runs after buildLoci). Spare any trait referenced by a built locus.
+  const lociClause = (await tableExists("loci"))
+    ? "AND NOT EXISTS (SELECT 1 FROM main.loci l WHERE l.trait_id = t.id) "
+    : "";
   // Orphan = unmapped (no ontology), not referenced by any source/mapping
-  // association, not a parent of another trait, and (when evidence exists) has
-  // no evidence rows. The mapping_traits check is what protects a constant-
-  // scope trait a mapping points at; the dead config.derivation_traits check
-  // from the old schema was removed.
+  // association, not a parent of another trait, and (when built) has no evidence
+  // rows AND no loci. The mapping_traits check protects a constant-scope trait a
+  // mapping points at; evidence/loci clauses protect column-scope traits.
   const where =
     "t.primary_ontology_id IS NULL " +
     "AND NOT EXISTS (SELECT 1 FROM config.source_traits st WHERE st.trait_id = t.id) " +
     "AND NOT EXISTS (SELECT 1 FROM config.mapping_traits mt WHERE mt.trait_id = t.id) " +
     "AND NOT EXISTS (SELECT 1 FROM config.traits c WHERE c.parent_trait_id = t.id) " +
-    evidenceClause;
+    evidenceClause +
+    lociClause;
 
   const [{ n } = { n: 0 }] = await ds.query<{ n: number }>({
     sql: `SELECT COUNT(*) AS n FROM config.traits t WHERE ${where}`,

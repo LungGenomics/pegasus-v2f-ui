@@ -37,22 +37,23 @@ async function count(sql: string): Promise<number> {
 export async function rebuildDerived(
   actor: string | null = null,
 ): Promise<RebuildDerivedResult> {
-  // 0. Register traits referenced by column-scope mappings so the evidence
-  //    view's label→trait_id join resolves (else trait_id is all NULL).
-  //    Auto-derived traits are attributed to the rebuild's actor.
+  // 0. Register traits referenced by column-scope mappings (evidence AND loci)
+  //    so the label→trait_id join resolves (else trait_id is all NULL — and loci
+  //    drop NULL-trait variants entirely). Auto-derived traits get the rebuild actor.
   await ensureColumnScopeTraits(actor);
   // 1. evidence view (depends only on mappings/transforms).
   await buildEvidenceView();
-  // 1b. Drop traits orphaned by the rebuild — e.g. a column-scope typo trait
-  //     whose label no longer appears in any evidence after a mapping/transform
-  //     fix. Runs after the evidence view so "no evidence" is accurate; the
-  //     prune clause spares ontology-mapped, source/mapping-referenced, and
-  //     parent traits (constant-scope traits a mapping points at are safe).
-  await pruneJunkTraits();
   // 2. gene reference — full parquet, cached (no refetch if already loaded).
   const geneReferenceRows = await ensureGeneReference();
   // 3. loci (each loci mapping's own projected variants).
   const loci = await buildLoci();
+  // 3b. Drop traits orphaned by the rebuild — e.g. a column-scope typo trait
+  //     whose label no longer appears in any evidence OR loci after a fix. Runs
+  //     after BOTH the evidence view and the loci build so "unused" is accurate:
+  //     column-scope traits aren't in config.mapping_traits, so a loci trait is
+  //     only protected once its loci exist. Spares ontology-mapped,
+  //     source/mapping-referenced, parent, and evidence/loci-referenced traits.
+  await pruneJunkTraits();
   // 4. locus_evidence view + loci.n_candidate_genes (reads evidence + loci +
   //    gene_reference).
   await buildLocusEvidenceView();
