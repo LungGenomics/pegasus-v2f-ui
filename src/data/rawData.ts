@@ -7,6 +7,7 @@ import { getDataSource, tableExists } from "./select";
 import { rawTableName } from "./sourceOps";
 import { compileTransformPipeline } from "./transform/compile";
 import { listSourceTransforms } from "./sourceTransformOps";
+import { ensureGeneMappingTable } from "./pipeline/geneReference";
 import type { TransformConfigEntry } from "../api/types";
 
 function ident(name: string): string {
@@ -158,6 +159,11 @@ export async function buildTransformedPipeline(sourceId: string): Promise<string
     type: t.type,
     ...(t.params as Record<string, unknown>),
   }));
+  // map_gene_id joins main.gene_mapping — make sure it exists before the
+  // compiled pipeline runs (build or work-area preview alike).
+  if (entries.some((e) => e.type === "map_gene_id")) {
+    await ensureGeneMappingTable();
+  }
   return compileTransformPipeline(entries, baseRaw, { sourceIsSql: true });
 }
 

@@ -92,3 +92,23 @@ export async function ensureGeneReference(force = false): Promise<number> {
   });
   return Number(c?.n ?? 0);
 }
+
+/** main.gene_mapping: the Ensembl→HGNC lookup the `map_gene_id` transform joins
+ *  (`gm.ensembl_gene_id`, `gm.symbol`). A view over gene_reference (which carries
+ *  ensembl_gene_id + gene_symbol), so it always reflects the loaded reference.
+ *  Ensures gene_reference is loaded first. Replaces the never-implemented
+ *  createGeneMappingTable() referenced by transform/compile.ts. */
+export async function ensureGeneMappingTable(): Promise<void> {
+  await ensureGeneReference();
+  const ds = getDataSource();
+  await ds.exec({
+    sql:
+      "CREATE OR REPLACE VIEW main.gene_mapping AS " +
+      // Strip any Ensembl version (ENSG….5 → ENSG…) so the join matches the
+      // compiler's version-stripped input regardless of the reference's style.
+      "SELECT DISTINCT REGEXP_REPLACE(ensembl_gene_id, '\\.\\d+$', '') AS ensembl_gene_id, " +
+      "       gene_symbol AS symbol " +
+      "FROM main.gene_reference " +
+      "WHERE ensembl_gene_id IS NOT NULL AND gene_symbol IS NOT NULL",
+  });
+}

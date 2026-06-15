@@ -36,7 +36,13 @@ function strLit(value: string): string {
 function fieldExpr(mapping: ConfigMapping, field: string): string {
   const f = (mapping.fields ?? []).find((x) => x.canonical_field === field);
   const col = f?.raw_column?.trim();
-  return col ? `${ident(col)} AS ${ident(field)}` : `NULL AS ${ident(field)}`;
+  // Qualify with the pipeline alias (_src): when col === field (e.g.
+  // gene_symbol AS gene_symbol) AND the SELECT has a join (column-scope trait
+  // resolution), an unqualified ref can bind to the not-yet-defined output
+  // alias on stricter binders (DuckDB-WASM) → "referenced before it is defined".
+  return col
+    ? `_src.${ident(col)} AS ${ident(field)}`
+    : `NULL AS ${ident(field)}`;
 }
 
 // primary_value / secondary_value alias the mapping's chosen value columns —
@@ -45,7 +51,7 @@ function fieldExpr(mapping: ConfigMapping, field: string): string {
 // for loci mappings.
 function valueExpr(col: string | undefined, alias: string): string {
   const c = col?.trim();
-  return c ? `${ident(c)} AS ${ident(alias)}` : `NULL AS ${ident(alias)}`;
+  return c ? `_src.${ident(c)} AS ${ident(alias)}` : `NULL AS ${ident(alias)}`;
 }
 
 // Optional value label literal — describes what the value is. NULL when unset.
