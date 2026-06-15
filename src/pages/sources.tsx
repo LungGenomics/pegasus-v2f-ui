@@ -7,16 +7,33 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
-import { Plus, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Plus, PanelLeftClose, PanelLeftOpen, Braces } from "lucide-react";
 import { listSources } from "../data/sourceOps";
+import { importSourceConfig } from "../data/configIO";
+import { JsonIoModal } from "../components/json-io";
+import { useSyncSession } from "../hooks/useSyncSession";
 import { AddSourcePanel } from "./sources-add";
 import { SourceWorkArea } from "./source-workarea";
+
+const CONFIG_TEMPLATE = {
+  source: {
+    name: "my_source",
+    source_type: "googlesheets",
+    url: "https://docs.google.com/spreadsheets/d/…/edit",
+    skip_rows: 0,
+  },
+  transforms: [],
+  mappings: [],
+};
 
 export function SourcesPage() {
   const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const qc = useQueryClient();
+  const session = useSyncSession();
+  const actor = session?.login ?? null;
   const selected = params.get("source");
 
   const sourcesQ = useQuery({
@@ -25,8 +42,9 @@ export function SourcesPage() {
   });
   const sources = sourcesQ.data ?? [];
 
-  // The list collapses to a strip only when a source is being worked on.
-  const showStrip = collapsed && !!selected && !adding;
+  // The list collapses to a thin strip (the collapse control is always
+  // available, not only when a source is selected).
+  const showStrip = collapsed && !adding;
 
   const selectSource = (name: string) => {
     setAdding(false);
@@ -70,16 +88,24 @@ export function SourcesPage() {
             <span className="text-xs font-semibold text-base-content/50 uppercase tracking-wide">
               {sources.length} {sources.length === 1 ? "Source" : "Sources"}
             </span>
-            {selected && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setConfigOpen(true)}
+                title="Power-user: import a source from config JSON"
+                className="text-base-content/40 hover:text-base-content cursor-pointer p-0.5"
+              >
+                <Braces className="size-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => setCollapsed(true)}
                 title="Collapse list"
-                className="text-base-content/40 hover:text-base-content cursor-pointer"
+                className="text-base-content/40 hover:text-base-content cursor-pointer p-0.5"
               >
                 <PanelLeftClose className="size-4" />
               </button>
-            )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-auto min-h-0">
@@ -139,6 +165,20 @@ export function SourcesPage() {
           </div>
         )}
       </div>
+
+      {configOpen && (
+        <JsonIoModal
+          title="Import source from config"
+          exportValue={CONFIG_TEMPLATE}
+          onApply={async (parsed) => {
+            const r = await importSourceConfig(parsed, actor);
+            await qc.invalidateQueries({ queryKey: ["config"] });
+            setParams({ source: r.name });
+            return { applied: r.mappings.inserted, errors: r.mappings.errors };
+          }}
+          onClose={() => setConfigOpen(false)}
+        />
+      )}
     </div>
   );
 }

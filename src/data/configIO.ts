@@ -11,6 +11,9 @@ import {
   removeMapping,
   type InsertMappingInput,
 } from "./mappingOps";
+import { ingestSource } from "./pipeline/ingest";
+import { replaceSourceTransforms } from "./sourceTransformOps";
+import type { InsertSourceInput } from "./sourceOps";
 import { listTraits, findOrCreateByLabel } from "./traitOps";
 import type {
   MappingCentric,
@@ -142,4 +145,111 @@ export async function importMappings(
     }
   }
   return { inserted, errors };
+}
+
+// --- Whole-source import (power-user: create an entire source from one config
+//     JSON) -----------------------------------------------------------------
+// Composes the three existing layers — ingestSource (create + fetch raw table),
+// replaceSourceTransforms (the pipeline), importMappings (the projections) — so
+// a single `{ source, transforms, mappings }` document recreates a source in one
+// shot. Transforms travel FLAT (`{ type, ...params }`, the Transforms-tab JSON
+// shape); mappings as MappingJson[]; traits by label. The combined shape matches
+// the per-source config files under staging/pegasus.v2f/configs/.
+
+/** A flat transform step as it appears in the Transforms-tab JSON: the `type`
+ *  discriminant plus its params inline. */
+export type TransformJson = { type: string } & Record<string, unknown>;
+
+export interface SourceConfigJson {
+  source: InsertSourceInput;
+  transforms?: TransformJson[];
+  mappings?: MappingJson[];
+}
+
+export interface ImportSourceResult {
+  source_id: string;
+  name: string;
+  rows: number;
+  transforms: number;
+  mappings: ImportResult;
+}
+
+const SOURCE_NAME_RE = /^[a-z][a-z0-9_]*$/;
+const SOURCE_TYPES = new Set([
+  "googlesheets",
+  "csv",
+  "tsv",
+  "parquet",
+  "url",
+]);
+
+/** Create an entire source from a combined config object. Throws on a fatal
+ *  problem (bad shape, name/type/url validation, ingest failure); per-mapping
+ *  problems come back in `mappings.errors`. */
+export async function importSourceConfig(
+  raw: unknown,
+  actor: string | null = null,
+): Promise<ImportSourceResult> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Expected a config object with a `source` block.");
+  }
+  const cfg = raw as SourceConfigJson;
+  const src = cfg.source;
+  if (!src || typeof src !== "object") {
+    throw new Error("Missing `source` block.");
+  }
+  if (!src.name || !SOURCE_NAME_RE.test(src.name)) {
+    throw new Error(
+      "source.name must be lowercase letters, digits, and underscores (starting with a letter).",
+    );
+  }
+  if (!SOURCE_TYPES.has(src.source_type)) {
+    throw new Error(
+      `source.source_type must be one of: ${[...SOURCE_TYPES].join(", ")}.`,
+    );
+  }
+  if (typeof src.url === "string" && src.url.includes("<<")) {
+    throw new Error(
+      "source.url is still a placeholder — set the real data URL before importing.",
+    );
+  }
+
+  // 1. Create + ingest (fetches the URL, materializes the raw table).
+  const input: InsertSourceInput = {
+    name: src.name,
+    source_type: src.source_type,
+    display_name: src.display_name,
+    description: src.description,
+    url: src.url,
+    sheet: src.sheet || undefined,
+    skip_rows: src.skip_rows,
+    citation: src.citation,
+  };
+  const ingest = await ingestSource(input, undefined, actor);
+  const sourceId = ingest.source.id;
+
+  // 2. Transform pipeline (flat { type, ...params } → { type, params }).
+  const transforms = (cfg.transforms ?? []).map((t) => {
+    const { type, ...params } = t;
+    return { type, params };
+  });
+  if (transforms.length) {
+    await replaceSourceTransforms(sourceId, transforms, actor);
+  }
+
+  // 3. Mappings (fresh source → "replace" is equivalent to "append").
+  const mappings = await importMappings(
+    sourceId,
+    cfg.mappings ?? [],
+    "replace",
+    actor,
+  );
+
+  return {
+    source_id: sourceId,
+    name: src.name,
+    rows: ingest.rows,
+    transforms: transforms.length,
+    mappings,
+  };
 }
