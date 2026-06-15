@@ -1,29 +1,20 @@
-const CATEGORY_COLORS: Record<string, string> = {
-  QTL: "badge-primary",
-  COLOC: "badge-primary",
-  GWAS: "badge-secondary",
-  PROX: "badge-accent",
-  CODE: "badge-error",
-  RARE: "badge-error",
-  EXP: "badge-info",
-  EPIG: "badge-info",
-  CHROM: "badge-info",
-  REG: "badge-warning",
-  FUNC: "badge-success",
-  MOD: "badge-success",
-  DRUG: "badge-warning",
-  PATH: "badge-accent",
-  PPI: "badge-accent",
-  KNOW: "badge-neutral",
-  LIT: "badge-neutral",
-  CLIN: "badge-error",
-  OMICS: "badge-primary",
-  PERT: "badge-success",
-  EVOL: "badge-neutral",
-  OTHER: "badge-ghost",
-};
+import { categoryHue } from "../data/static";
 
+// A category chip colored from the single canonical palette (data/static.ts).
+// Soft tint so the same hue stays legible across all 22 categories: light
+// background, dark text, faint border — all derived from the category's hue.
 export function EvidenceBadge({ category }: { category: string }) {
-  const color = CATEGORY_COLORS[category] ?? "badge-ghost";
-  return <span className={`badge badge-sm ${color}`}>{category}</span>;
+  const h = categoryHue(category);
+  return (
+    <span
+      className="badge badge-sm border"
+      style={{
+        backgroundColor: `hsl(${h} 85% 93%)`,
+        color: `hsl(${h} 60% 30%)`,
+        borderColor: `hsl(${h} 70% 50% / 0.35)`,
+      }}
+    >
+      {category}
+    </span>
+  );
 }

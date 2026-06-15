@@ -13,11 +13,18 @@ import {
 import { EVIDENCE_CATEGORIES } from "../../data/static";
 import { EvidenceHeatmap } from "../../components/locus-detail-pane/evidence-heatmap";
 import { formatCoordinate, formatPvalue } from "../../lib/format";
+import { usePersistentState } from "../../hooks/usePersistentState";
 import { Breadcrumb } from "./breadcrumb";
 
 export function LocusDetailPage() {
   const { id: rawId } = useParams<{ id: string }>();
   const locusId = rawId ? decodeURIComponent(rawId) : "";
+  // Same persisted flag as the trait page's loci view — the heatmap owns the
+  // toggle here (no loci list to host it).
+  const [evidenceOnly, setEvidenceOnly] = usePersistentState<boolean>(
+    "pegasus-v2f.evidenceOnly",
+    true,
+  );
 
   const locusQ = useQuery({
     queryKey: ["explore", "locus", locusId],
@@ -87,7 +94,12 @@ export function LocusDetailPage() {
       {genesQ.isLoading ? (
         <p className="text-sm text-base-content/40">Loading…</p>
       ) : (
-        <EvidenceHeatmap genes={genesQ.data ?? []} categories={EVIDENCE_CATEGORIES} />
+        <EvidenceHeatmap
+          genes={genesQ.data ?? []}
+          categories={EVIDENCE_CATEGORIES}
+          evidenceOnly={evidenceOnly}
+          onEvidenceOnlyChange={setEvidenceOnly}
+        />
       )}
 
       {/* Traits at this locus — linked list (traverse) */}

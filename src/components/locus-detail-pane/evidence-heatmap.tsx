@@ -3,38 +3,19 @@ import { Link } from "react-router";
 import { ArrowUpNarrowWide, ArrowDownWideNarrow, ChevronRight, ChevronDown } from "lucide-react";
 import type { LocusGene, LocusGeneEvidence } from "../../api/types";
 import { formatScore } from "../../lib/format";
+import { categoryHue } from "../../data/static";
 
 type Props = {
   genes: LocusGene[];
   categories: Record<string, string>; // abbreviation -> full name
   onGeneClick?: (gene: string) => void;
-};
-
-/** Map category abbreviation to a hue for the heatmap cell fill. Exported so
- *  the landing-page category glossary can show matching color dots. */
-export const CATEGORY_HUES: Record<string, string> = {
-  QTL: "217",   // blue
-  COLOC: "217",
-  GWAS: "271",  // purple
-  PROX: "160",  // teal
-  CODE: "0",    // red
-  RARE: "0",
-  EXP: "199",   // cyan
-  EPIG: "199",
-  CHROM: "199",
-  REG: "38",    // amber
-  FUNC: "142",  // green
-  MOD: "142",
-  DRUG: "38",
-  PATH: "160",
-  PPI: "160",
-  KNOW: "220",  // neutral blue
-  LIT: "220",
-  CLIN: "0",
-  OMICS: "217",
-  PERT: "142",
-  EVOL: "220",
-  OTHER: "0",
+  /** When true, hide candidate-only genes (positional overlaps with no
+   *  evidence) — show just the genes carrying real evidence. */
+  evidenceOnly?: boolean;
+  /** When provided, the heatmap renders its own "Evidence only" toggle bound to
+   *  this setter (used on the standalone locus page). On the trait page the
+   *  loci-header toggle owns the flag, so this is omitted there. */
+  onEvidenceOnlyChange?: (v: boolean) => void;
 };
 
 type PopoverState = {
@@ -52,8 +33,22 @@ type PopoverState = {
 type SortKey = "#" | "gene" | string;
 type SortDir = "asc" | "desc";
 
-export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
+export function EvidenceHeatmap({
+  genes,
+  categories,
+  onGeneClick,
+  evidenceOnly = false,
+  onEvidenceOnlyChange,
+}: Props) {
   const categoryKeys = Object.keys(categories);
+
+  // Candidate-only genes (positional overlaps with no evidence) carry an empty
+  // evidence[] (the 'candidate' stub rows). Drop them when evidenceOnly.
+  const visibleGenes = useMemo(
+    () => (evidenceOnly ? genes.filter((g) => g.evidence.length > 0) : genes),
+    [genes, evidenceOnly],
+  );
+  const hiddenCount = genes.length - visibleGenes.length;
   const [popover, setPopover] = useState<PopoverState>(null);
   const [sortKey, setSortKey] = useState<SortKey>("#");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -76,7 +71,7 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
   // Build evidence lookup: gene -> category -> evidence items
   const evidenceMap = useMemo(() => {
     const map = new Map<string, Map<string, LocusGeneEvidence[]>>();
-    for (const gene of genes) {
+    for (const gene of visibleGenes) {
       const catMap = new Map<string, LocusGeneEvidence[]>();
       for (const ev of gene.evidence) {
         const cat = ev.evidence_category;
@@ -86,7 +81,7 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
       map.set(gene.gene_symbol, catMap);
     }
     return map;
-  }, [genes]);
+  }, [visibleGenes]);
 
   // Live replacement for the dropped integration_rank: a gene's distinct
   // evidence-category count (the old "gene score" was exactly this). Drives
@@ -117,7 +112,7 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
   };
 
   const sorted = useMemo(() => {
-    const arr = [...genes];
+    const arr = [...visibleGenes];
     const dir = sortDir === "asc" ? 1 : -1;
 
     arr.sort((a, b) => {
@@ -136,7 +131,7 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
       return ((aEvs?.length ?? 0) - (bEvs?.length ?? 0)) * dir;
     });
     return arr;
-  }, [genes, evidenceMap, sortKey, sortDir]);
+  }, [visibleGenes, evidenceMap, sortKey, sortDir]);
 
   const popoverFor = (
     e: React.MouseEvent,
@@ -201,6 +196,29 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
 
   return (
     <div ref={containerRef} className="overflow-x-auto relative">
+      {onEvidenceOnlyChange && (
+        <label className="flex items-center gap-1.5 text-xs text-base-content/60 cursor-pointer mb-2 w-fit">
+          <input
+            type="checkbox"
+            className="toggle toggle-xs"
+            checked={evidenceOnly}
+            onChange={(e) => onEvidenceOnlyChange(e.target.checked)}
+          />
+          Evidence only
+          {evidenceOnly && hiddenCount > 0 && (
+            <span className="text-base-content/40">
+              ({hiddenCount} candidate{hiddenCount === 1 ? "" : "s"} hidden)
+            </span>
+          )}
+        </label>
+      )}
+      {sorted.length === 0 ? (
+        <p className="text-sm text-base-content/40 py-2">
+          {evidenceOnly && genes.length > 0
+            ? "No genes with evidence at this locus — toggle off “Evidence only” to see positional candidates."
+            : "No candidate genes at this locus."}
+        </p>
+      ) : (
       <table className="table table-xs">
         <thead>
           <tr>
@@ -269,6 +287,7 @@ export function EvidenceHeatmap({ genes, categories, onGeneClick }: Props) {
           })}
         </tbody>
       </table>
+      )}
 
       {/* Evidence popover */}
       {popover && (
@@ -421,7 +440,7 @@ function GeneRow({
           // Shade by instance COUNT, not value: open values aren't comparable
           // across sources/categories (plan 2026-06-01-evidence-value-model).
           // 1 instance → light, 5+ → full. The actual values show on hover.
-          const hue = CATEGORY_HUES[cat] ?? "0";
+          const hue = categoryHue(cat);
           const opacity = 0.25 + Math.min((items.length - 1) / 4, 1) * 0.6;
           const isActive = popover?.gene === gene.gene_symbol && popover?.cat === cat;
 
@@ -538,7 +557,7 @@ function EvidenceDetailTable({
       </thead>
       <tbody>
         {grouped.map(({ key, label, items }) => {
-          const hue = CATEGORY_HUES[key] ?? "0";
+          const hue = categoryHue(key);
           // Value labels for this category (per-mapping; uniform within a group
           // in practice — take the first instance's).
           const lbls = [

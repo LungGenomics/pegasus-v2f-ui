@@ -32,9 +32,8 @@ import {
   locusGenes,
   type LocusRow,
 } from "../../data/queries/explore";
-import { CATEGORY_HUES } from "../../components/locus-detail-pane/evidence-heatmap";
 import { fetchChromSizes } from "../../data/chromSizes";
-import { EVIDENCE_CATEGORIES } from "../../data/static";
+import { EVIDENCE_CATEGORIES, categoryHue } from "../../data/static";
 import { GenomeTrack, type GenomeTrackHandle } from "../../components/genome-track/genome-track";
 import { TrackControls } from "../../components/genome-track/track-controls";
 import { EvidenceHeatmap } from "../../components/locus-detail-pane/evidence-heatmap";
@@ -64,7 +63,7 @@ const LABEL_MODES: { value: LabelMode; label: string }[] = [
   { value: "coords", label: "Coordinates" },
   { value: "nearest", label: "Nearest gene" },
   { value: "top_gene", label: "Top gene" },
-  { value: "top_gene_category", label: "By category" },
+  { value: "top_gene_category", label: "Evidence category" },
 ];
 
 type SortKey = "position" | "evidence" | "genes";
@@ -357,10 +356,19 @@ export function TraitDetail({ traitId }: { traitId: string }) {
     "pegasus-v2f.trait.sortDir",
     "asc",
   );
-  const loci = useMemo(
-    () => sortLoci(lociQ.data ?? [], sortKey, sortDir),
-    [lociQ.data, sortKey, sortDir],
+  // Evidence-only view: hide loci with no non-candidate evidence (and, in the
+  // heatmap, candidate-only genes). Default on — the credible-set view (all
+  // positional candidates) is one toggle away. Persists across traits/reloads.
+  const [evidenceOnly, setEvidenceOnly] = usePersistentState<boolean>(
+    "pegasus-v2f.evidenceOnly",
+    true,
   );
+  const loci = useMemo(() => {
+    const sorted = sortLoci(lociQ.data ?? [], sortKey, sortDir);
+    return evidenceOnly
+      ? sorted.filter((l) => (l.n_evidence ?? 0) > 0)
+      : sorted;
+  }, [lociQ.data, sortKey, sortDir, evidenceOnly]);
   const sourceTags = tagsQ.data ?? [];
   const multiSource = sourceTags.length > 1;
   const trackRef = useRef<GenomeTrackHandle>(null);
@@ -374,7 +382,9 @@ export function TraitDetail({ traitId }: { traitId: string }) {
   // gene modes fall back to cytoband when no gene resolves.
   const [labelMode, setLabelMode] = usePersistentState<LabelMode>(
     "pegasus-v2f.trait.labelMode",
-    "cytoband",
+    // Top gene where the locus has one; labelText falls back to cytoband
+    // per-locus when there's no top gene (gene desert / no evidence).
+    "top_gene",
   );
   // Selected category for the "By category" label mode.
   const [scoreCategory, setScoreCategory] = usePersistentState<string | null>(
@@ -674,7 +684,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
       )}
 
       {/* Loci header: count + filter + track controls */}
-      <div className="flex flex-wrap items-center gap-3 mt-3 mb-2">
+      <div className="flex flex-wrap items-center gap-2 mt-3 mb-2">
         <h3 className="text-sm font-medium text-base-content/60 shrink-0">
           <span ref={lociCountRef}>Loci ({loci.length})</span>
         </h3>
@@ -709,6 +719,18 @@ export function TraitDetail({ traitId }: { traitId: string }) {
           selectedSources={selectedSources}
           onSelectedSources={setSelectedSources}
         />
+        <label
+          className="flex items-center gap-1.5 text-xs text-base-content/60 cursor-pointer shrink-0"
+          title="Show only loci and genes with evidence"
+        >
+          <input
+            type="checkbox"
+            className="toggle toggle-xs"
+            checked={evidenceOnly}
+            onChange={(e) => setEvidenceOnly(e.target.checked)}
+          />
+          Evidence only
+        </label>
         {chromQ.data && (
           <div className="ml-auto flex items-center gap-2">
             {trackLoci.length > 0 && (
@@ -742,6 +764,8 @@ export function TraitDetail({ traitId }: { traitId: string }) {
       {/* Loci list / selected-locus detail */}
       <LociPane
         loci={loci}
+        loading={lociQ.isLoading}
+        evidenceOnly={evidenceOnly}
         traitId={traitId}
         listRef={listRef}
         selectedLocusId={selectedLocusId}
@@ -782,7 +806,7 @@ function CoverageStrip({
         const n = byCat?.get(cat) ?? 0;
         const cov = Math.min(1, n / denom);
         const has = cov > 0;
-        const hue = CATEGORY_HUES[cat] ?? "220";
+        const hue = categoryHue(cat);
         // Match the locus-detail heatmap cells: small rounded box, filled by
         // coverage when present; empty boxes are dashed base-300 like the
         // heatmap's no-evidence cells.
@@ -806,6 +830,8 @@ function CoverageStrip({
 
 function LociPane({
   loci,
+  loading,
+  evidenceOnly,
   traitId,
   listRef,
   selectedLocusId,
@@ -817,6 +843,8 @@ function LociPane({
   orderedCategories,
 }: {
   loci: LocusRow[];
+  loading: boolean;
+  evidenceOnly: boolean;
   traitId: string;
   listRef: React.Ref<HTMLDivElement>;
   selectedLocusId?: string;
@@ -834,7 +862,14 @@ function LociPane({
   if (loci.length === 0) {
     return (
       <div className="border border-base-300 rounded-lg px-3 py-4 text-sm text-base-content/40 text-center">
-        No loci for this trait.
+        {loading ? (
+          <span className="inline-flex items-center gap-2">
+            <span className="loading loading-spinner loading-xs" />
+            Loading loci…
+          </span>
+        ) : (
+          "No loci for this trait."
+        )}
       </div>
     );
   }
@@ -848,7 +883,11 @@ function LociPane({
         >
           ← Back to list
         </button>
-        <LocusDetail locus={selected} traitId={traitId} />
+        <LocusDetail
+          locus={selected}
+          traitId={traitId}
+          evidenceOnly={evidenceOnly}
+        />
       </div>
     );
   }
@@ -887,8 +926,11 @@ function LociPane({
               categories={orderedCategories}
             />
           )}
-          <span className="text-xs text-base-content/40 tabular-nums shrink-0 w-16 text-right">
-            {l.n_candidate_genes ?? 0} genes
+          <span
+            className="text-xs text-base-content/40 tabular-nums shrink-0 w-16 text-right"
+            title={evidenceOnly ? "Genes with evidence" : "Candidate genes"}
+          >
+            {(evidenceOnly ? l.n_evidence_genes : l.n_candidate_genes) ?? 0} genes
           </span>
         </button>
       ))}
@@ -897,7 +939,14 @@ function LociPane({
   );
 }
 
-function LocusDetail({ locus }: { locus: LocusRow; traitId: string }) {
+function LocusDetail({
+  locus,
+  evidenceOnly,
+}: {
+  locus: LocusRow;
+  traitId: string;
+  evidenceOnly: boolean;
+}) {
   // Same-trait evidence only (the locus's own). Cross-trait/pleiotropy is a
   // deferred page-level feature, not a per-locus toggle.
   const genesQ = useQuery({
@@ -928,7 +977,11 @@ function LocusDetail({ locus }: { locus: LocusRow; traitId: string }) {
       {genesQ.isLoading ? (
         <p className="text-sm text-base-content/40">Loading…</p>
       ) : (
-        <EvidenceHeatmap genes={genesQ.data ?? []} categories={EVIDENCE_CATEGORIES} />
+        <EvidenceHeatmap
+          genes={genesQ.data ?? []}
+          categories={EVIDENCE_CATEGORIES}
+          evidenceOnly={evidenceOnly}
+        />
       )}
     </div>
   );

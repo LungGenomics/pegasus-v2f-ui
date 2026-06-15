@@ -14,8 +14,7 @@ import {
   geneEvidence,
   type GeneEvidenceRow,
 } from "../../data/queries/explore";
-import { EVIDENCE_CATEGORIES } from "../../data/static";
-import { CATEGORY_HUES } from "../../components/locus-detail-pane/evidence-heatmap";
+import { EVIDENCE_CATEGORIES, categoryHue } from "../../data/static";
 import { formatCoordinate, formatScore } from "../../lib/format";
 import { Breadcrumb } from "./breadcrumb";
 
@@ -231,7 +230,7 @@ function CategoryHeatStrip({
           {Object.keys(EVIDENCE_CATEGORIES).map((cat) => {
             const n = counts.get(cat) ?? 0;
             const has = n > 0;
-            const hue = CATEGORY_HUES[cat] ?? "220";
+            const hue = categoryHue(cat);
             const opacity = 0.25 + Math.min((n - 1) / 4, 1) * 0.6;
             return (
               <div key={cat} className="flex flex-col items-center gap-1">

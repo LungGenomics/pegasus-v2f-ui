@@ -20,6 +20,10 @@ export interface LocusRow {
   /** Same-trait non-candidate evidence rows at this locus. Only populated by
    *  traitLoci() (for the evidence-count sort). */
   n_evidence?: number | null;
+  /** Distinct genes with same-trait non-candidate evidence at this locus — the
+   *  gene count shown when the loci list is in "Evidence only" mode. Only
+   *  populated by traitLoci(). */
+  n_evidence_genes?: number | null;
   source_tag: string | null;
   /** Gene nearest the locus's lead/source variant (window-midpoint fallback
    *  when the lead is NULL). Positional, trait-agnostic. Only populated by
@@ -200,6 +204,10 @@ export async function traitLoci(
       "       (SELECT COUNT(*) FROM main.locus_evidence le4 " +
       "          WHERE le4.locus_id = l.locus_id AND NOT le4.is_cross_trait " +
       "            AND le4.match_type <> 'candidate') AS n_evidence, " +
+      "       (SELECT COUNT(DISTINCT le5.gene_symbol) FROM main.locus_evidence le5 " +
+      "          WHERE le5.locus_id = l.locus_id AND NOT le5.is_cross_trait " +
+      "            AND le5.match_type <> 'candidate' " +
+      "            AND le5.gene_symbol IS NOT NULL) AS n_evidence_genes, " +
       "       (SELECT gene_symbol FROM ( " +
       "          SELECT le2.gene_symbol, " +
       "                 COUNT(DISTINCT le2.evidence_category) AS ncat, " +
