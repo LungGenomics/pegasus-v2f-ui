@@ -158,7 +158,9 @@ export function SourcesPage() {
         <SourceConfigImportModal
           actor={actor}
           onImported={() => {
-            void qc.invalidateQueries({ queryKey: ["config"] });
+            // Fires after the modal's post-import rebuild — refresh everything
+            // (config lists + the derived explore/traits/loci views).
+            void qc.invalidateQueries();
           }}
           onClose={() => setConfigOpen(false)}
         />

@@ -214,7 +214,7 @@ const STATEMENTS: string[] = [
      merge_distance_kb        INTEGER NOT NULL DEFAULT 100,
      locus_definition_source  VARCHAR,
      gene_reference_url       VARCHAR,
-     candidate_gene_biotypes  VARCHAR DEFAULT 'protein_coding,lncRNA',
+     candidate_gene_biotypes  VARCHAR DEFAULT 'protein_coding',
      row_version              INTEGER NOT NULL DEFAULT 1,
      -- Who last changed settings (NULL on the seeded row) — drives the
      -- Activity feed entry, same as the entity tables' last_edited_by.

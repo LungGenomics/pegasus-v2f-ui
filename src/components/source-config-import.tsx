@@ -7,6 +7,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import { X, Upload, Loader2, Check, AlertTriangle } from "lucide-react";
 import { importSourceConfigs, type BatchImportEntry } from "../data/configIO";
+import { rebuildDerived } from "../data/pipeline/derived";
 
 type Staged = { id: number; label: string; raw: unknown };
 
@@ -31,6 +32,7 @@ export function SourceConfigImportModal({
   const [paste, setPaste] = useState("");
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [results, setResults] = useState<BatchImportEntry[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const idRef = useRef(0);
@@ -89,6 +91,22 @@ export function SourceConfigImportModal({
       );
       setResults(r);
       setStaged([]); // consumed — re-add files to import again
+      // Rebuild the derived layer ONCE after the batch (not per source) so
+      // traits/loci/evidence reflect the new sources — the import path's
+      // analogue of the auto-rebuild on a manual mapping edit. Skip if every
+      // config failed (nothing to build).
+      if (r.some((e) => e.ok)) {
+        setRebuilding(true);
+        try {
+          await rebuildDerived(actor);
+        } catch (e) {
+          setErr(
+            `Sources imported, but the derived-layer rebuild failed: ${(e as Error).message}`,
+          );
+        } finally {
+          setRebuilding(false);
+        }
+      }
       onImported();
     } catch (e) {
       setErr((e as Error).message);
@@ -251,9 +269,11 @@ export function SourceConfigImportModal({
             onClick={() => void doImport()}
           >
             {busy && <Loader2 className="size-3.5 animate-spin" />}
-            {busy
-              ? "Importing…"
-              : `Import ${staged.length || ""} source${staged.length === 1 ? "" : "s"}`}
+            {rebuilding
+              ? "Rebuilding…"
+              : busy
+                ? "Importing…"
+                : `Import ${staged.length || ""} source${staged.length === 1 ? "" : "s"}`}
           </button>
         </div>
       </div>
