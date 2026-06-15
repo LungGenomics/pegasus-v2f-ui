@@ -80,7 +80,6 @@ export function LandingPage() {
 // the total count; each row links into its detail surface, and the "all" link
 // opens the full browse page. ---
 
-const TOP_N = 8;
 
 function SummarySection() {
   return (
@@ -126,10 +125,11 @@ function CardShell({
   );
 }
 
-/** Bordered list wrapper with divided rows. */
+/** Bordered list wrapper with divided rows. Caps at ~7 rows tall and scrolls
+ *  internally for the full list. */
 function List({ children }: { children: React.ReactNode }) {
   return (
-    <div className="divide-y divide-base-300 overflow-hidden rounded-lg border border-base-300 text-sm">
+    <div className="divide-y divide-base-300 max-h-64 overflow-y-auto rounded-lg border border-base-300 text-sm">
       {children}
     </div>
   );
@@ -184,7 +184,7 @@ function TraitsSummary() {
         <StateLine text="No traits yet." />
       ) : (
         <List>
-          {data.slice(0, TOP_N).map((t) => (
+          {data.map((t) => (
             <Row
               key={t.trait_id}
               to={`/traits?trait=${encodeURIComponent(t.trait_id)}`}
@@ -213,7 +213,7 @@ function SourcesSummary() {
         <StateLine text="No sources yet." />
       ) : (
         <List>
-          {data.slice(0, TOP_N).map((s) => (
+          {data.map((s) => (
             <Row
               key={s.id}
               to={`/sources?source=${encodeURIComponent(s.name)}`}
