@@ -90,7 +90,9 @@ export function locusMidpoint(
  *
  * Expects loci sorted by absolute position. Uses a greedy sweep:
  * walk left-to-right, merge any locus whose pixel position is within
- * minPixelGap of the current cluster's rightmost pixel.
+ * minPixelGap of the current cluster's rightmost pixel — but only when it's on
+ * the SAME chromosome, so loci near a chromosome boundary (pixel-adjacent on the
+ * track) never aggregate across chromosomes.
  */
 export function clusterLoci(
   loci: TrackLocus[],
@@ -111,7 +113,10 @@ export function clusterLoci(
 
   for (let i = 1; i < withPixel.length; i++) {
     const last = currentGroup[currentGroup.length - 1]!;
-    if (withPixel[i]!.px - last.px < minPixelGap) {
+    if (
+      withPixel[i]!.px - last.px < minPixelGap &&
+      withPixel[i]!.locus.chr === last.locus.chr
+    ) {
       currentGroup.push(withPixel[i]!);
     } else {
       result.push(finalizeGroup(currentGroup));
@@ -137,7 +142,7 @@ function finalizeGroup(
     type: "cluster",
     count: loci.length,
     loci,
-    chr: loci[0]!.chr, // cluster may span chroms, use first
+    chr: loci[0]!.chr, // all loci in a group share a chromosome
     start: Math.min(...loci.map((l) => l.start)),
     end: Math.max(...loci.map((l) => l.end)),
     centerPixel: (Math.min(...pixels) + Math.max(...pixels)) / 2,
