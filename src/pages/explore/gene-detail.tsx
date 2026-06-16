@@ -16,7 +16,6 @@ import {
 } from "../../data/queries/explore";
 import { EVIDENCE_CATEGORIES, categoryHue } from "../../data/static";
 import { formatCoordinate, formatScore } from "../../lib/format";
-import { Breadcrumb } from "./breadcrumb";
 
 export function GeneDetailPage() {
   const { symbol: rawSym } = useParams<{ symbol: string }>();
@@ -50,8 +49,10 @@ export function GeneDetailPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <Breadcrumb kind="Gene" name={symbol} />
-      <h1 className="text-lg font-semibold font-mono mt-2">{symbol}</h1>
+      <div className="text-xs font-medium uppercase tracking-wide text-base-content/40">
+        Gene
+      </div>
+      <h1 className="text-lg font-semibold font-mono">{symbol}</h1>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/60 mt-1">
         {gene?.ensembl_gene_id && <span className="font-mono">{gene.ensembl_gene_id}</span>}
         {gene?.chromosome && gene.start != null && gene.end != null && (

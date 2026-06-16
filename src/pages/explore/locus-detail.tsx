@@ -14,7 +14,6 @@ import { EVIDENCE_CATEGORIES } from "../../data/static";
 import { EvidenceHeatmap } from "../../components/locus-detail-pane/evidence-heatmap";
 import { formatCoordinate, formatPvalue } from "../../lib/format";
 import { usePersistentState } from "../../hooks/usePersistentState";
-import { Breadcrumb } from "./breadcrumb";
 
 export function LocusDetailPage() {
   const { id: rawId } = useParams<{ id: string }>();
@@ -53,7 +52,10 @@ export function LocusDetailPage() {
   if (!locus) {
     return (
       <div>
-        <Breadcrumb kind="Locus" name={locusId} />
+        <div className="text-xs font-medium uppercase tracking-wide text-base-content/40">
+          Locus
+        </div>
+        <p className="text-sm text-base-content/40 mt-2 font-mono">{locusId}</p>
         <p className="text-sm text-base-content/40 mt-4">Locus not found.</p>
       </div>
     );
@@ -61,8 +63,10 @@ export function LocusDetailPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <Breadcrumb kind="Locus" name={locus.locus_name || locus.locus_id} />
-      <h1 className="text-lg font-semibold font-mono mt-2">
+      <div className="text-xs font-medium uppercase tracking-wide text-base-content/40">
+        Locus
+      </div>
+      <h1 className="text-lg font-semibold font-mono">
         {locus.locus_name || locus.locus_id}
       </h1>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/60 mt-1">
