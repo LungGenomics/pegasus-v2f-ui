@@ -49,6 +49,10 @@ export interface LocusRow {
    *  evidence categories, score-sum tiebreak). Only populated by traitLoci();
    *  NULL when the locus has no non-candidate evidence for the trait. */
   top_gene?: string | null;
+  /** Space-joined distinct gene symbols with gene-level evidence at the locus —
+   *  lets the loci filter match a locus by any of its evidence genes and the row
+   *  tooltip list them. traitLoci() only. */
+  evidence_genes?: string | null;
 }
 
 export async function listLoci(): Promise<LocusRow[]> {
@@ -253,7 +257,16 @@ export async function traitLoci(
       "          FROM (SELECT DISTINCT gene_symbol FROM main.locus_evidence le3 " +
       "                 WHERE le3.locus_id = l.locus_id AND le3.gene_symbol IS NOT NULL) lg " +
       "          JOIN main.gene_reference g ON g.gene_symbol = lg.gene_symbol " +
-      "         WHERE g.chromosome = l.chromosome) AS nearest_gene " +
+      "         WHERE g.chromosome = l.chromosome) AS nearest_gene, " +
+      // Gene-level evidence genes at the locus (match_type='gene') — matches the
+      // n_evidence_genes count and the heatmap's evidence-only set. Joined into
+      // one string so the loci filter can match a locus by ANY of its evidence
+      // genes (not just top/nearest), and the row tooltip can list them.
+      "       (SELECT string_agg(g, ' ') FROM ( " +
+      "          SELECT DISTINCT le7.gene_symbol AS g FROM main.locus_evidence le7 " +
+      "           WHERE le7.locus_id = l.locus_id AND NOT le7.is_cross_trait " +
+      "             AND le7.match_type = 'gene' AND le7.gene_symbol IS NOT NULL " +
+      "       )) AS evidence_genes " +
       "FROM main.loci l " +
       "WHERE l.trait_id = ?" + sourceFilter + " " +
       `ORDER BY ${chromOrder("l.chromosome")} NULLS LAST, l.start_position`,

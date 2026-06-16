@@ -213,7 +213,7 @@ export function EvidenceHeatmap({
             checked={evidenceOnly}
             onChange={(e) => onEvidenceOnlyChange(e.target.checked)}
           />
-          Evidence only
+          Genes with evidence only
           {evidenceOnly && hiddenCount > 0 && (
             <span className="text-base-content/40">
               ({hiddenCount} candidate{hiddenCount === 1 ? "" : "s"} hidden)

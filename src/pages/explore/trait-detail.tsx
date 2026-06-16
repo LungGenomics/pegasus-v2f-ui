@@ -143,6 +143,37 @@ function secondaryText(l: LocusRow, mode: LabelMode): string {
   return mode === "coords" ? cytobandText(l) : coordText(l);
 }
 
+/** Render `text` with the first case-insensitive occurrence of `q` emphasized.
+ *  Used to bold the typed query inside a matched-gene chip. */
+function highlightMatch(text: string, q: string): React.ReactNode {
+  if (!q) return text;
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return text;
+  return (
+    <>
+      {text.slice(0, i)}
+      <span className="font-semibold">{text.slice(i, i + q.length)}</span>
+      {text.slice(i + q.length)}
+    </>
+  );
+}
+
+/** Genes at the locus (gene-level evidence set) that match the active filter
+ *  query but aren't already the row's visible label — i.e. the reason the row
+ *  matched. Empty when not filtering or the match was a non-gene field. */
+function matchedGenes(
+  l: LocusRow,
+  query: string,
+  shownLabel: string,
+): string[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return (l.evidence_genes ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .filter((g) => g.toLowerCase().includes(q) && g !== shownLabel);
+}
+
 /** Human description of what the locus label currently shows — for the row
  *  tooltip. Gene-based modes note when they fell back to cytoband (no gene). */
 function labelKind(l: LocusRow, mode: LabelMode, byCatGene?: string | null): string {
@@ -162,32 +193,26 @@ function labelKind(l: LocusRow, mode: LabelMode, byCatGene?: string | null): str
   }
 }
 
-// Filters popover for the loci header: label mode (+ by-category sub-select)
-// and the definition-source filter. Keeps the header to one button; an
-// active-count badge surfaces non-default state. (Track controls stay separate.)
+// Filters popover for the loci header: the evidence-only filter, sort, and the
+// definition-source filter. (Label mode lives in the header — it's a display
+// choice, not a filter. Track controls stay separate.)
 function LociFilters({
-  labelMode,
-  onLabelMode,
   sortKey,
   onSortKey,
   sortDir,
   onSortDir,
-  scoreCategory,
-  onScoreCategory,
-  categories,
+  evidenceOnly,
+  onEvidenceOnlyChange,
   sources,
   selectedSources,
   onSelectedSources,
 }: {
-  labelMode: LabelMode;
-  onLabelMode: (m: LabelMode) => void;
   sortKey: SortKey;
   onSortKey: (k: SortKey) => void;
   sortDir: SortDir;
   onSortDir: (d: SortDir) => void;
-  scoreCategory: string | null;
-  onScoreCategory: (c: string | null) => void;
-  categories: string[];
+  evidenceOnly: boolean;
+  onEvidenceOnlyChange: (v: boolean) => void;
   sources: string[];
   selectedSources: string[];
   onSelectedSources: (s: string[]) => void;
@@ -225,42 +250,20 @@ function LociFilters({
       </button>
       {open && (
         <div className="absolute left-0 top-full mt-1 z-30 w-60 border border-base-300 rounded-lg bg-base-100 shadow-lg p-3 space-y-3 text-sm">
-          <label className="block">
-            <span className="text-xs text-base-content/50">Label loci by</span>
-            <select
-              className="select select-bordered select-xs w-full mt-1"
-              value={labelMode}
-              onChange={(e) => onLabelMode(e.target.value as LabelMode)}
-            >
-              {LABEL_MODES.map(({ value, label }) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
+          <label
+            className="flex cursor-pointer items-center justify-between gap-2"
+            title="Show only loci and genes with evidence. Within a locus, shows just genes with gene-specific evidence — hides positional candidates and genes whose only signal is locus-wide (e.g. GWAS)."
+          >
+            <span className="text-xs text-base-content/50">
+              Genes with evidence only
+            </span>
+            <input
+              type="checkbox"
+              className="toggle toggle-xs"
+              checked={evidenceOnly}
+              onChange={(e) => onEvidenceOnlyChange(e.target.checked)}
+            />
           </label>
-
-          {labelMode === "top_gene_category" && (
-            <label className="block">
-              <span className="text-xs text-base-content/50">Category</span>
-              <select
-                className="select select-bordered select-xs w-full mt-1 font-mono"
-                value={scoreCategory ?? ""}
-                onChange={(e) => onScoreCategory(e.target.value || null)}
-                disabled={categories.length === 0}
-              >
-                {categories.length === 0 ? (
-                  <option value="">no categories</option>
-                ) : (
-                  categories.map((c) => (
-                    <option key={c} value={c}>
-                      {EVIDENCE_CATEGORIES[c] ?? c}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
-          )}
 
           <div className="border-t border-base-200 pt-2">
             <span className="text-xs text-base-content/50">Sort by</span>
@@ -519,6 +522,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
         l.source_tag,
         l.nearest_gene,
         l.top_gene,
+        l.evidence_genes,
         byCatMap?.get(l.locus_id),
       ]
         .filter(Boolean)
@@ -616,6 +620,16 @@ export function TraitDetail({ traitId }: { traitId: string }) {
       if (lociCountRef.current) {
         lociCountRef.current.textContent =
           visible === loci.length ? `Loci (${loci.length})` : `Loci (${visible} of ${loci.length})`;
+      }
+      // Show a placeholder row when the filter/view hides every locus, so the
+      // list isn't just blank (imperative, like the row hiding above).
+      const empty = container.querySelector<HTMLElement>("[data-empty-state]");
+      if (empty) {
+        empty.textContent =
+          matchingIndices !== null
+            ? "No loci match your filter."
+            : "No loci in this view.";
+        empty.classList.toggle("hidden", visible !== 0);
       }
     },
     [lociAbsPositions, totalGenomeLength, matchingIndices, loci.length],
@@ -717,7 +731,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
           <input
             type="text"
             className="grow"
-            placeholder="Filter loci…"
+            placeholder="Search loci…"
             value={locusFilter}
             onChange={(e) => setLocusFilter(e.target.value)}
           />
@@ -730,32 +744,53 @@ export function TraitDetail({ traitId }: { traitId: string }) {
             </button>
           )}
         </label>
+        {/* Label mode is a display choice (not a filter) — surfaced in the
+            header so the current label type is visible at a glance. */}
+        <label className="inline-flex items-center gap-1 text-xs text-base-content/50 shrink-0">
+          Label
+          <select
+            className="select select-bordered select-xs w-auto"
+            value={labelMode}
+            onChange={(e) => setLabelMode(e.target.value as LabelMode)}
+            title="What each locus is labeled by in the list and track"
+          >
+            {LABEL_MODES.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {labelMode === "top_gene_category" && (
+          <select
+            className="select select-bordered select-xs w-auto font-mono shrink-0"
+            value={scoreCategory ?? ""}
+            onChange={(e) => setScoreCategory(e.target.value || null)}
+            disabled={categories.length === 0}
+            title="Evidence category for the per-locus top gene"
+          >
+            {categories.length === 0 ? (
+              <option value="">no categories</option>
+            ) : (
+              categories.map((c) => (
+                <option key={c} value={c}>
+                  {EVIDENCE_CATEGORIES[c] ?? c}
+                </option>
+              ))
+            )}
+          </select>
+        )}
         <LociFilters
-          labelMode={labelMode}
-          onLabelMode={setLabelMode}
           sortKey={sortKey}
           onSortKey={setSortKey}
           sortDir={sortDir}
           onSortDir={setSortDir}
-          scoreCategory={scoreCategory}
-          onScoreCategory={setScoreCategory}
-          categories={categories}
+          evidenceOnly={evidenceOnly}
+          onEvidenceOnlyChange={setEvidenceOnly}
           sources={sourceTags}
           selectedSources={selectedSources}
           onSelectedSources={setSelectedSources}
         />
-        <label
-          className="flex items-center gap-1.5 text-xs text-base-content/60 cursor-pointer shrink-0"
-          title="Show only loci and genes with evidence. Within a locus, shows just genes with gene-specific evidence — hides positional candidates and genes whose only signal is locus-wide (e.g. GWAS)."
-        >
-          <input
-            type="checkbox"
-            className="toggle toggle-xs"
-            checked={evidenceOnly}
-            onChange={(e) => setEvidenceOnly(e.target.checked)}
-          />
-          Evidence only
-        </label>
         {chromQ.data && (
           <div className="ml-auto flex items-center gap-2">
             {trackLoci.length > 0 && (
@@ -796,6 +831,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
         selectedLocusId={selectedLocusId}
         onSelect={setSelectedLocus}
         onHoverLocus={setHoveredLocusId}
+        filterQuery={locusFilter.trim()}
         sourceColors={multiSource ? sourceColors : undefined}
         labelMode={labelMode}
         byCatMap={byCatMap}
@@ -863,6 +899,7 @@ function LociPane({
   selectedLocusId,
   onSelect,
   onHoverLocus,
+  filterQuery,
   sourceColors,
   labelMode,
   byCatMap,
@@ -877,6 +914,7 @@ function LociPane({
   selectedLocusId?: string;
   onSelect: (id: string | null) => void;
   onHoverLocus: (id: string | null) => void;
+  filterQuery: string;
   sourceColors?: Record<string, string>;
   labelMode: LabelMode;
   byCatMap: Map<string, string> | null;
@@ -947,6 +985,34 @@ function LociPane({
             >
               {labelText(l, labelMode, byCatMap?.get(l.locus_id))}
             </span>
+            {/* While filtering, show why this row matched if it was a gene other
+                than the label — a small chip next to the top gene. */}
+            {filterQuery &&
+              (() => {
+                const m = matchedGenes(
+                  l,
+                  filterQuery,
+                  labelText(l, labelMode, byCatMap?.get(l.locus_id)),
+                );
+                if (m.length === 0) return null;
+                return (
+                  <span className="shrink-0 inline-flex items-center gap-1">
+                    {m.slice(0, 3).map((g) => (
+                      <span
+                        key={g}
+                        className="rounded border border-primary/30 bg-primary/10 px-1 font-mono text-[10px] leading-tight text-primary/80"
+                      >
+                        {highlightMatch(g, filterQuery)}
+                      </span>
+                    ))}
+                    {m.length > 3 && (
+                      <span className="text-[10px] text-base-content/40">
+                        +{m.length - 3}
+                      </span>
+                    )}
+                  </span>
+                );
+              })()}
             <span className="text-xs text-base-content/40 hidden sm:inline truncate">
               {secondaryText(l, labelMode)}
             </span>
@@ -961,10 +1027,18 @@ function LociPane({
           )}
           {(() => {
             const n = (evidenceOnly ? l.n_evidence_genes : l.n_candidate_genes) ?? 0;
+            const genes = (l.evidence_genes ?? "").split(" ").filter(Boolean);
+            const list =
+              genes.slice(0, 20).join(", ") + (genes.length > 20 ? ", …" : "");
+            const title = genes.length
+              ? `Genes with evidence: ${list}`
+              : evidenceOnly
+                ? "Genes with evidence"
+                : "Candidate genes";
             return (
               <span
                 className="text-xs text-base-content/40 tabular-nums shrink-0 w-16 text-right"
-                title={evidenceOnly ? "Genes with evidence" : "Candidate genes"}
+                title={title}
               >
                 {n} gene{n === 1 ? "" : "s"}
               </span>
@@ -972,6 +1046,11 @@ function LociPane({
           })()}
         </button>
       ))}
+      {/* Shown imperatively by applyViewFilter when filter/view hides all loci. */}
+      <div
+        data-empty-state
+        className="hidden px-3 py-2 text-sm text-base-content/40"
+      />
       </div>
     </div>
   );
