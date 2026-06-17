@@ -217,7 +217,7 @@ function SourcesSummary() {
             <Row
               key={s.id}
               to={`/sources?source=${encodeURIComponent(s.name)}`}
-              left={s.display_name || s.name}
+              left={s.name}
               right={
                 <span className="font-mono text-xs">{s.source_type}</span>
               }

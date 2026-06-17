@@ -225,15 +225,18 @@ export function SourceWorkArea({
       <section className="min-w-0 h-full flex flex-col min-h-0">
         <div className="flex items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
+            <p className="text-xs font-mono text-base-content/40 truncate">
+              {source.name}
+            </p>
             <h1 className="text-lg font-semibold truncate">
               {source.display_name || source.name}
             </h1>
             {source.description ? (
-              <p className="text-xs text-base-content/60 truncate">
+              <p className="text-sm text-base-content/60 line-clamp-5">
                 {source.description}
               </p>
             ) : (
-              <p className="text-xs italic text-base-content/40">
+              <p className="text-sm italic text-base-content/40">
                 No description
               </p>
             )}
@@ -673,7 +676,7 @@ function DetailsTab({
             className={`textarea textarea-bordered textarea-sm w-full ${
               description ? "bg-base-200" : ""
             }`}
-            rows={3}
+            rows={7}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="optional"

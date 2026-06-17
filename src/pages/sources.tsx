@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
-import { Plus, PanelLeftClose, PanelLeftOpen, Braces } from "lucide-react";
+import { Plus, PanelLeftClose, PanelLeftOpen, Braces, Search } from "lucide-react";
 import { listSources } from "../data/sourceOps";
 import { SourceConfigImportModal } from "../components/source-config-import";
 import { useSyncSession } from "../hooks/useSyncSession";
@@ -19,6 +19,7 @@ export function SourcesPage() {
   const [adding, setAdding] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [filter, setFilter] = useState("");
   const qc = useQueryClient();
   const session = useSyncSession();
   const actor = session?.login ?? null;
@@ -29,6 +30,14 @@ export function SourcesPage() {
     queryFn: listSources,
   });
   const sources = sourcesQ.data ?? [];
+  const q = filter.trim().toLowerCase();
+  const shown = q
+    ? sources.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          (s.display_name?.toLowerCase().includes(q) ?? false),
+      )
+    : sources;
 
   // The list collapses to a thin strip (the collapse control is always
   // available, not only when a source is selected).
@@ -46,7 +55,7 @@ export function SourcesPage() {
   return (
     <div
       className={`grid gap-6 h-[calc(100vh-6.25rem)] ${
-        showStrip ? "grid-cols-[3rem_1fr]" : "grid-cols-[minmax(220px,340px)_1fr]"
+        showStrip ? "grid-cols-[3rem_1fr]" : "grid-cols-[minmax(220px,300px)_1fr]"
       }`}
     >
       {showStrip ? (
@@ -81,7 +90,7 @@ export function SourcesPage() {
                 type="button"
                 onClick={() => setConfigOpen(true)}
                 title="Power-user: import a source from config JSON"
-                className="text-base-content/40 hover:text-base-content cursor-pointer p-0.5"
+                className="text-base-content/40 hover:text-base-content cursor-pointer"
               >
                 <Braces className="size-4" />
               </button>
@@ -89,19 +98,31 @@ export function SourcesPage() {
                 type="button"
                 onClick={() => setCollapsed(true)}
                 title="Collapse list"
-                className="text-base-content/40 hover:text-base-content cursor-pointer p-0.5"
+                className="text-base-content/40 hover:text-base-content cursor-pointer"
               >
                 <PanelLeftClose className="size-4" />
               </button>
             </div>
           </div>
 
+          <div className="relative mb-2 shrink-0">
+            <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-base-content/40 z-10" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter sources…"
+              className="input input-bordered input-sm h-7 min-h-7 w-full pl-8 text-xs"
+            />
+          </div>
+
           <div className="flex-1 overflow-auto min-h-0">
             {sourcesQ.isLoading ? (
               <p className="text-xs text-base-content/40 px-2 py-1">Loading…</p>
+            ) : shown.length === 0 ? (
+              <p className="text-xs text-base-content/40 px-2 py-1">No sources.</p>
             ) : (
               <div className="flex flex-col gap-0.5">
-                {sources.map((s) => {
+                {shown.map((s) => {
                   const isActive = !adding && s.name === selected;
                   return (
                     <button
@@ -115,7 +136,7 @@ export function SourcesPage() {
                       }`}
                     >
                       <span className="text-sm truncate block">
-                        {s.display_name || s.name}
+                        {s.name}
                       </span>
                     </button>
                   );
