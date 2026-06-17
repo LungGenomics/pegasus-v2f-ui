@@ -1,6 +1,6 @@
 # pegasus-v2f-ui
 
-Browser-only web interface for exploring PEGASUS V2F databases. Runs entirely
+Browser-only web interface for exploring pegasus.v2f databases. Runs entirely
 in the browser via [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview).
 **No server required.** Open a `.duckdb` file and start exploring.
 
