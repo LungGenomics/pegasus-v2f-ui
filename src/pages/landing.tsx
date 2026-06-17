@@ -24,14 +24,14 @@ export function LandingPage() {
   };
 
   return (
-    <div className="px-6 pt-28 pb-20">
+    <div className="px-6 pt-[5.5rem] pb-20">
       <div className="max-w-3xl mx-auto flex flex-col items-center">
-        <h1 className="text-5xl font-thin tracking-wide mb-6">
-          <span className="text-primary font-[250]">pegasus</span>
+        <h1 className="text-3xl font-thin tracking-wide">
+          <span className="text-primary font-normal">pegasus</span>
           <span className="text-base-content/30">.</span>
           <span className="text-base-content/50 font-thin">v2f</span>
         </h1>
-        <p className="text-base font-normal text-base-content/50 text-center max-w-2xl mb-16">
+        <p className="text-[0.9375rem] font-normal text-base-content/50 text-center max-w-2xl mt-1 mb-16">
           A workspace for building, exploring, and sharing variant-to-function evidence.
         </p>
 
@@ -55,7 +55,7 @@ export function LandingPage() {
           </button>
         </form>
 
-        <div className="flex items-center gap-1.5 mt-6 flex-wrap justify-center">
+        <div className="flex items-center gap-1.5 mt-3 flex-wrap justify-center">
           <span className="text-base-content/30 text-xs">Try:</span>
           {EXAMPLES.map((term) => (
             <button
