@@ -10,11 +10,33 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
-import { Upload, ArrowRight, Loader2, FileText, X, RefreshCw } from "lucide-react";
+import {
+  Upload,
+  ArrowRight,
+  Loader2,
+  FileText,
+  X,
+  RefreshCw,
+  Download,
+} from "lucide-react";
 import { ingestSource } from "../data/pipeline/ingest";
 import { previewRaw, type RawPreview } from "../data/pipeline/load";
 import type { InsertSourceInput } from "../data/sourceOps";
 import { useSyncSession } from "../hooks/useSyncSession";
+import { buildSourceConfigGuide } from "../data/sourceConfigGuide";
+
+/** Serialize the live authoring guide and trigger a download of AGENTS.md. */
+function downloadSourceConfigGuide() {
+  const blob = new Blob([buildSourceConfigGuide()], {
+    type: "text/markdown;charset=utf-8",
+  });
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = "AGENTS.md";
+  a.click();
+  URL.revokeObjectURL(href);
+}
 
 const NAME_RE = /^[a-z0-9_]+$/;
 
@@ -212,8 +234,9 @@ export function AddSourcePanel({
       </p>
 
       {!hasInput ? (
-        <div className="w-full">
-          {/* Paste a URL (top row) */}
+        <>
+          <div className="w-full">
+            {/* Paste a URL (top row) */}
           <div className="flex items-center gap-2 border-[1.5px] border-primary/30 rounded-t-lg px-3 py-2.5">
             <input
               type="text"
@@ -271,7 +294,32 @@ export function AddSourcePanel({
               }}
             />
           </div>
-        </div>
+          </div>
+
+          {/* Authoring guide: full instructions for turning existing data into
+              an importable source config. Generated from the live schema. */}
+          <div className="mt-6 flex items-stretch gap-4 rounded-lg border border-base-300 bg-base-200/30 px-4 py-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-base-content/80">
+                Adding a source from existing data?
+              </p>
+              <p className="text-xs text-base-content/55 mt-0.5">
+                Download the authoring guide — the config schema, every
+                transform, the evidence categories, and a worked example for
+                turning a data file into an importable source config. Hand it to
+                an AI agent or follow it yourself.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={downloadSourceConfigGuide}
+              className="btn btn-primary h-auto self-stretch shrink-0 gap-1.5 text-xs"
+            >
+              <Download className="size-4" />
+              AGENTS.md
+            </button>
+          </div>
+        </>
       ) : (
         <div className="space-y-5">
           <div className="flex items-center gap-2 rounded-lg border border-base-300 bg-base-200/30 px-3 py-2 text-sm">

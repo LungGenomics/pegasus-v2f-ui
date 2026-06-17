@@ -174,8 +174,8 @@ export interface ImportSourceResult {
   mappings: ImportResult;
 }
 
-const SOURCE_NAME_RE = /^[a-z][a-z0-9_]*$/;
-const SOURCE_TYPES = new Set([
+export const SOURCE_NAME_RE = /^[a-z][a-z0-9_]*$/;
+export const SOURCE_TYPES = new Set([
   "googlesheets",
   "csv",
   "tsv",
