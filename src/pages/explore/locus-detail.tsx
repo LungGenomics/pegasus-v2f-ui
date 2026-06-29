@@ -77,18 +77,16 @@ export function LocusDetailPage() {
             locus.end_position ?? 0,
           )}
         </span>
+        <span>{locus.n_candidate_genes ?? 0} candidate genes</span>
+        <span title="GWAS sentinel (lead) variants merged into this locus window">
+          {locus.n_signals ?? 0}{" "}
+          {locus.n_signals === 1 ? "sentinel" : "merged sentinels"}
+        </span>
+      </div>
+      {/* Lead variant of the window. */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/60 mt-1">
         {locus.lead_rsid && <span>Lead {locus.lead_rsid}</span>}
         {locus.lead_pvalue != null && <span>p = {formatPvalue(locus.lead_pvalue)}</span>}
-        <span>{locus.n_signals ?? 0} signals</span>
-        <span>{locus.n_candidate_genes ?? 0} candidate genes</span>
-        {locus.source_tag && (
-          <Link
-            to={`/sources?source=${encodeURIComponent(locus.source_tag)}`}
-            className="text-primary hover:underline font-mono"
-          >
-            {locus.source_tag}
-          </Link>
-        )}
       </div>
 
       {/* Candidate genes × evidence (the locus's own trait). */}
@@ -106,7 +104,9 @@ export function LocusDetailPage() {
         />
       )}
 
-      {/* Traits at this locus — linked list (traverse) */}
+      {/* Traits at this locus — linked list (traverse). The locus is owned by
+          ONE trait (it defined the window); others are cross-trait evidence
+          overlapping it (pleiotropy), marked below. */}
       <h2 className="text-sm font-medium text-base-content/60 mt-6 mb-2">
         Traits ({traits.length})
       </h2>
@@ -114,21 +114,42 @@ export function LocusDetailPage() {
         <p className="text-xs text-base-content/40">No trait evidence at this locus.</p>
       ) : (
         <div className="border border-base-300 rounded-md divide-y divide-base-300">
-          {traits.map((t) => (
-            <Link
-              key={t.trait_id}
-              to={`/traits?trait=${encodeURIComponent(t.trait_id)}`}
-              className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-base-200/50"
-            >
-              <span className="font-medium flex-1 min-w-0 truncate">{t.label}</span>
-              <span className="text-xs text-base-content/40 tabular-nums">
-                {t.n_genes} genes
-              </span>
-              <span className="text-xs text-base-content/40 tabular-nums">
-                {t.n_evidence} evidence
-              </span>
-            </Link>
-          ))}
+          {traits.map((t) => {
+            const isOwner = t.trait_id === locus.trait_id;
+            return (
+              <Link
+                key={t.trait_id}
+                to={`/traits?trait=${encodeURIComponent(t.trait_id)}`}
+                className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-base-200/50"
+              >
+                <span className="font-medium min-w-0 truncate">{t.label}</span>
+                {isOwner ? (
+                  <span
+                    className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/15 text-primary shrink-0"
+                    title="This trait defined the locus — its GWAS sentinel(s) drew the window."
+                  >
+                    locus source
+                    {locus.source_tag && (
+                      <span className="normal-case font-mono"> · {locus.source_tag}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span
+                    className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-base-200 text-base-content/60 shrink-0"
+                    title="This trait's evidence overlaps the locus but did not define it (cross-trait / pleiotropy)."
+                  >
+                    cross-trait overlap
+                  </span>
+                )}
+                <span className="text-xs text-base-content/40 tabular-nums ml-auto">
+                  {t.n_genes} genes
+                </span>
+                <span className="text-xs text-base-content/40 tabular-nums">
+                  {t.n_evidence} evidence
+                </span>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

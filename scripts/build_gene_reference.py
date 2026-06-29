@@ -12,9 +12,12 @@ What it does:
   3. Keeps feature == "gene", extracts the columns the candidate-gene overlap
      needs: gene_symbol, ensembl_gene_id, chromosome, start, end, strand,
      gene_type.
-  4. Writes gencode_genes_hg38.parquet locally.
-  5. Optionally uploads it to the pegasus-v2f-db R2 bucket (same bucket as the
-     DB sync) when R2 credentials are present in the environment.
+  4. Writes gencode_genes_hg38.parquet locally, plus a sidecar
+     gencode_genes_hg38.meta.json describing it (version/release/counts). The
+     UI imports the sidecar so the displayed GENCODE version can't drift from
+     the actual data — both are written in this one run.
+  5. Optionally uploads BOTH the parquet and the sidecar to the pegasus-v2f-db
+     R2 bucket (same bucket as the DB sync) when R2 credentials are present.
 
 Chromosome format: GENCODE uses UCSC style ("chr1", "chrX"), which is the
 canonical internal format the loci/evidence side aligns to (via add_prefix on
@@ -33,6 +36,7 @@ Usage:
 R2 target (matches repos/pegasus-v2f-sync/wrangler.toml):
   bucket      pegasus-v2f-db
   key         reference/gencode_genes_hg38.parquet
+              reference/gencode_genes_hg38.meta.json   (sidecar)
   public URL  https://pub-3dbe6972d0bd4328a532eba3d5fa449d.r2.dev/reference/gencode_genes_hg38.parquet
 The public URL is what goes in config.pegasus_settings.gene_reference_url.
 """
@@ -42,6 +46,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import io
+import json
 import os
 import re
 import sys
@@ -54,8 +59,32 @@ LATEST_DIR = f"{GENCODE_BASE}/latest_release/"
 
 R2_BUCKET = "pegasus-v2f-db"
 R2_KEY = "reference/gencode_genes_hg38.parquet"
+R2_META_KEY = "reference/gencode_genes_hg38.meta.json"
 R2_PUBLIC_BASE = "https://pub-3dbe6972d0bd4328a532eba3d5fa449d.r2.dev"
 OUT_FILE = "gencode_genes_hg38.parquet"
+
+
+def meta_path_for(parquet_path: str) -> str:
+    """Sidecar path: foo.parquet → foo.meta.json (alongside the parquet)."""
+    base = (
+        parquet_path[: -len(".parquet")]
+        if parquet_path.endswith(".parquet")
+        else parquet_path
+    )
+    return f"{base}.meta.json"
+
+
+def build_meta(release: int, df: pd.DataFrame) -> dict:
+    """Provenance for the parquet — deterministic for a given release, so
+    re-running the same release produces an identical sidecar (no churn)."""
+    return {
+        "version": f"GENCODE v{release}",
+        "release": release,
+        "genome_build": "hg38",
+        "n_genes": int(len(df)),
+        "n_biotypes": int(df["gene_type"].nunique()),
+        "source_url": gtf_url(release),
+    }
 
 
 def discover_latest_release() -> int:
@@ -140,7 +169,7 @@ def build(release: int) -> pd.DataFrame:
     return out
 
 
-def upload(path: str) -> None:
+def upload(path: str, meta_path: str) -> None:
     import boto3
 
     account = os.environ["R2_ACCOUNT_ID"]
@@ -162,7 +191,16 @@ def upload(path: str) -> None:
         R2_KEY,
         ExtraArgs={"ContentType": "application/octet-stream"},
     )
-    print(f"[gene-ref] public URL: {R2_PUBLIC_BASE}/{R2_KEY}")
+    print(f"[gene-ref] uploading → {R2_BUCKET}/{R2_META_KEY}", file=sys.stderr)
+    s3.upload_file(
+        meta_path,
+        R2_BUCKET,
+        R2_META_KEY,
+        ExtraArgs={"ContentType": "application/json"},
+    )
+    print(f"[gene-ref] public URLs:")
+    print(f"  {R2_PUBLIC_BASE}/{R2_KEY}")
+    print(f"  {R2_PUBLIC_BASE}/{R2_META_KEY}")
 
 
 def main() -> None:
@@ -186,12 +224,20 @@ def main() -> None:
     df.to_parquet(args.out, index=False)
     print(f"[gene-ref] wrote {args.out}", file=sys.stderr)
 
+    meta_path = meta_path_for(args.out)
+    with open(meta_path, "w") as fh:
+        json.dump(build_meta(release, df), fh, indent=2)
+        fh.write("\n")
+    print(f"[gene-ref] wrote {meta_path}", file=sys.stderr)
+
     if args.upload:
-        upload(args.out)
+        upload(args.out, meta_path)
     else:
         print(
             "[gene-ref] built locally; re-run with --upload (and R2_* env vars) "
-            "to push to R2.",
+            "to push to R2.\n"
+            "[gene-ref] NOTE: copy BOTH files into the UI bundle "
+            "(src/data/gene_reference.parquet and .meta.json) to ship them.",
             file=sys.stderr,
         )
 

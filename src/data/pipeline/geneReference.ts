@@ -14,8 +14,17 @@
 import { getDataSource } from "../select";
 // Bundled asset → a hashed URL emitted to dist (not inlined into the JS).
 import geneReferenceUrl from "../gene_reference.parquet?url";
+// Sidecar metadata, written next to the parquet by scripts/build_gene_reference.py
+// in the SAME run — so version/counts can't drift from the actual data.
+import geneReferenceMeta from "../gene_reference.meta.json";
 
 const REGISTER_NAME = "_gene_reference.parquet";
+
+/** Provenance of the bundled gene-coordinate reference, sourced from the
+ *  sidecar (src/data/gene_reference.meta.json) rather than hand-maintained.
+ *  Rebuild the parquet → the sidecar updates → this updates, automatically. */
+export const GENE_REFERENCE = geneReferenceMeta;
+export const GENE_REFERENCE_VERSION = geneReferenceMeta.version;
 
 async function tableExists(name: string): Promise<boolean> {
   const ds = getDataSource();

@@ -15,6 +15,7 @@ import {
   type GeneEvidenceRow,
 } from "../../data/queries/explore";
 import { EVIDENCE_CATEGORIES, categoryHue } from "../../data/static";
+import { GENE_REFERENCE_VERSION } from "../../data/pipeline/geneReference";
 import { formatCoordinate, formatScore } from "../../lib/format";
 
 export function GeneDetailPage() {
@@ -47,6 +48,14 @@ export function GeneDetailPage() {
   const traits = traitsQ.data ?? [];
   const evidence = evQ.data ?? [];
 
+  // Trait ids that OWN a locus at this gene (loci are trait-scoped). A trait in
+  // the Traits list whose id isn't here has evidence for the gene but no GWAS
+  // locus defined at it — flagged "evidence only" below.
+  const locusTraitIds = useMemo(
+    () => new Set(loci.map((l) => l.trait_id).filter(Boolean)),
+    [loci],
+  );
+
   return (
     <div className="h-full overflow-auto">
       <div className="text-xs font-medium uppercase tracking-wide text-base-content/40">
@@ -62,6 +71,11 @@ export function GeneDetailPage() {
         )}
         {gene?.strand && <span>strand {gene.strand}</span>}
         {gene?.gene_type && <span>{gene.gene_type}</span>}
+        {gene && (
+          <span title="Gene coordinates, biotype, and strand are from this GENCODE release (hg38).">
+            {GENE_REFERENCE_VERSION}
+          </span>
+        )}
         {!gene && !geneQ.isLoading && (
           <span className="italic">not in the gene reference</span>
         )}
@@ -81,21 +95,35 @@ export function GeneDetailPage() {
               to={`/locus/${encodeURIComponent(l.locus_id)}`}
               className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-base-200/50"
             >
-              <span className="font-mono font-medium flex-1 min-w-0 truncate">
+              <span className="font-mono font-medium min-w-0 truncate">
                 {l.locus_name || l.locus_id}
               </span>
-              <span className="text-xs text-base-content/40 hidden sm:inline">
-                {formatCoordinate(
-                  l.chromosome ?? "",
-                  l.start_position ?? 0,
-                  l.end_position ?? 0,
-                )}
-              </span>
-              {l.source_tag && (
-                <span className="text-xs text-base-content/40 font-mono">
-                  {l.source_tag}
+              {l.trait_label && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-base-200 text-base-content/70 shrink-0">
+                  {l.trait_label}
                 </span>
               )}
+              <div className="flex items-center gap-3 ml-auto shrink-0">
+                {l.source_tag && (
+                  <span className="text-xs text-base-content/40 font-mono">
+                    {l.source_tag}
+                  </span>
+                )}
+                <span
+                  className="text-xs text-base-content/40 tabular-nums"
+                  title="GWAS sentinel (lead) variants merged into this locus (1 = a single ±500 kb window; more = a wider merged window)"
+                >
+                  {l.n_signals ?? 0}{" "}
+                  {l.n_signals === 1 ? "sentinel" : "merged sentinels"}
+                </span>
+                <span className="text-xs text-base-content/40 hidden sm:inline">
+                  {formatCoordinate(
+                    l.chromosome ?? "",
+                    l.start_position ?? 0,
+                    l.end_position ?? 0,
+                  )}
+                </span>
+              </div>
             </Link>
           ))}
         </div>
@@ -115,8 +143,16 @@ export function GeneDetailPage() {
               to={`/traits?trait=${encodeURIComponent(t.trait_id)}`}
               className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-base-200/50"
             >
-              <span className="font-medium flex-1 min-w-0 truncate">{t.label}</span>
-              <span className="text-xs text-base-content/40 tabular-nums">
+              <span className="font-medium min-w-0 truncate">{t.label}</span>
+              {!locusTraitIds.has(t.trait_id) && (
+                <span
+                  className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-warning/15 text-warning shrink-0"
+                  title="No locus was defined for this gene and trait. The evidence is gene-keyed (e.g. expression / differential expression), not from a GWAS locus at this gene."
+                >
+                  evidence only
+                </span>
+              )}
+              <span className="text-xs text-base-content/40 tabular-nums ml-auto">
                 {t.n_evidence} evidence
               </span>
             </Link>

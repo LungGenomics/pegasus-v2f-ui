@@ -1,0 +1,8 @@
+{
+  "version": "GENCODE v49",
+  "release": 49,
+  "genome_build": "hg38",
+  "n_genes": 78691,
+  "n_biotypes": 37,
+  "source_url": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/gencode.v49.annotation.gtf.gz"
+}

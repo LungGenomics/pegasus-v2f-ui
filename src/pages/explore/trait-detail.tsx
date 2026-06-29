@@ -26,6 +26,7 @@ import {
   traitLoci,
   traitSourceTags,
   traitSources,
+  traitLocusSources,
   traitEvidenceCategories,
   traitLociTopGeneByCategory,
   traitLocusCategoryCoverage,
@@ -839,6 +840,7 @@ export function TraitDetail({ traitId }: { traitId: string }) {
         orderedCategories={orderedCategories}
       />
 
+      <TraitLocusSourcesPanel traitId={traitId} />
       <TraitSourcesPanel traitId={traitId} />
     </div>
   );
@@ -1073,9 +1075,18 @@ function LocusDetail({
 
   return (
     <div className="p-4">
-      <h4 className="text-sm font-medium text-base-content/70 font-mono mb-1">
-        {locus.locus_name || locus.locus_id}
-      </h4>
+      <div className="flex items-center gap-2 mb-1">
+        <h4 className="text-sm font-medium text-base-content/70 font-mono min-w-0 truncate">
+          {locus.locus_name || locus.locus_id}
+        </h4>
+        <Link
+          to={`/locus/${encodeURIComponent(locus.locus_id)}`}
+          title="Open the full locus page"
+          className="text-base-content/40 hover:text-primary shrink-0"
+        >
+          <ExternalLink className="size-3.5" />
+        </Link>
+      </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/60 mb-3">
         <span>
           {formatCoordinate(
@@ -1104,7 +1115,51 @@ function LocusDetail({
   );
 }
 
-// --- Contributing sources ---
+// --- Locus sources (loci-definition sources owning this trait's loci) ---
+
+function TraitLocusSourcesPanel({ traitId }: { traitId: string }) {
+  const q = useQuery({
+    queryKey: ["explore", "trait-locus-sources", traitId],
+    queryFn: () => traitLocusSources(traitId),
+    enabled: !!traitId,
+  });
+  const rows = q.data ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="mt-8">
+      <h3
+        className="text-sm font-medium text-base-content/60 mb-2"
+        title="GWAS sources whose sentinels defined this trait's loci (the windows)."
+      >
+        Locus sources ({rows.length})
+      </h3>
+      <div className="border border-base-300 rounded-lg overflow-hidden">
+        {rows.map((r, i) => (
+          <Link
+            key={r.source_tag}
+            to={`/sources?source=${encodeURIComponent(r.source_tag)}`}
+            className={`flex items-center gap-3 px-4 py-2 hover:bg-base-200/50 ${
+              i > 0 ? "border-t border-base-300" : ""
+            }`}
+          >
+            <span className="font-mono text-sm text-primary truncate flex-1">
+              {r.source_tag}
+            </span>
+            <span className="text-xs text-base-content/50 tabular-nums shrink-0 w-24 text-right">
+              {r.n_loci.toLocaleString()} loci
+            </span>
+            <span className="text-xs text-base-content/40 tabular-nums shrink-0 w-28 text-right">
+              {r.n_sentinels.toLocaleString()} sentinels
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// --- Evidence sources (sources contributing evidence at this trait's loci) ---
 
 function TraitSourcesPanel({ traitId }: { traitId: string }) {
   const q = useQuery({
@@ -1117,8 +1172,11 @@ function TraitSourcesPanel({ traitId }: { traitId: string }) {
 
   return (
     <section className="mt-8">
-      <h3 className="text-sm font-medium text-base-content/60 mb-3">
-        Sources contributing ({rows.length})
+      <h3
+        className="text-sm font-medium text-base-content/60 mb-2"
+        title="Sources contributing evidence (any category) at this trait's loci."
+      >
+        Evidence sources ({rows.length})
       </h3>
       <div className="border border-base-300 rounded-lg overflow-hidden">
         {rows.map((r, i) => (

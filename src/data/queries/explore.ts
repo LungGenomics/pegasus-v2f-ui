@@ -41,6 +41,13 @@ export interface LocusRow {
    *  shown when the loci list is in "Evidence only" mode. traitLoci() only. */
   n_evidence_genes?: number | null;
   source_tag: string | null;
+  /** id + label of the trait that OWNS this locus (loci.trait_id →
+   *  config.traits). Loci are trait-scoped, so the same gene can sit in one
+   *  locus per trait; this disambiguates those rows, and lets a consumer tell
+   *  the owning trait apart from cross-trait evidence. Populated by
+   *  getLocus()/geneLoci(). */
+  trait_id?: string | null;
+  trait_label?: string | null;
   /** Gene nearest the locus's lead/source variant (window-midpoint fallback
    *  when the lead is NULL). Positional, trait-agnostic. Only populated by
    *  traitLoci(); NULL for loci with no candidate genes (gene desert). */
@@ -368,6 +375,39 @@ export async function traitSourceTags(traitId: string): Promise<string[]> {
   return rows.map((r) => r.source_tag);
 }
 
+export interface TraitLocusSourceRow {
+  source_tag: string;
+  n_loci: number;
+  n_sentinels: number;
+}
+
+/** Loci-definition sources that OWN loci for this trait — the trait's "studies",
+ *  with how many loci each defined and how many GWAS sentinels merged into them.
+ *  Distinct from traitSources (evidence sources): these draw the windows. */
+export async function traitLocusSources(
+  traitId: string,
+): Promise<TraitLocusSourceRow[]> {
+  const ds = getDataSource();
+  const rows = await ds.query<{
+    source_tag: string;
+    n_loci: number | string;
+    n_sentinels: number | string | null;
+  }>({
+    sql:
+      "SELECT source_tag, COUNT(*) AS n_loci, " +
+      "       COALESCE(SUM(n_signals), 0) AS n_sentinels " +
+      "FROM main.loci " +
+      "WHERE trait_id = ? AND source_tag IS NOT NULL " +
+      "GROUP BY source_tag ORDER BY n_loci DESC, source_tag",
+    params: [traitId],
+  });
+  return rows.map((r) => ({
+    source_tag: r.source_tag,
+    n_loci: Number(r.n_loci),
+    n_sentinels: Number(r.n_sentinels ?? 0),
+  }));
+}
+
 export interface TraitSourceRow {
   source_tag: string;
   categories: string[];
@@ -484,9 +524,12 @@ export async function getLocus(locusId: string): Promise<LocusRow | null> {
   const ds = getDataSource();
   const [row] = await ds.query<LocusRow>({
     sql:
-      "SELECT locus_id, locus_name, chromosome, start_position, end_position, " +
-      "       lead_rsid, lead_pvalue, n_signals, n_candidate_genes, source_tag " +
-      "FROM main.loci WHERE locus_id = ? LIMIT 1",
+      "SELECT l.locus_id, l.locus_name, l.chromosome, l.start_position, " +
+      "       l.end_position, l.lead_rsid, l.lead_pvalue, l.n_signals, " +
+      "       l.n_candidate_genes, l.source_tag, " +
+      "       CAST(l.trait_id AS VARCHAR) AS trait_id, t.label AS trait_label " +
+      "FROM main.loci l LEFT JOIN config.traits t ON t.id = l.trait_id " +
+      "WHERE l.locus_id = ? LIMIT 1",
     params: [locusId],
   });
   return row ?? null;
@@ -544,8 +587,10 @@ export async function geneLoci(symbol: string): Promise<LocusRow[]> {
     sql:
       "SELECT DISTINCT l.locus_id, l.locus_name, l.chromosome, " +
       "       l.start_position, l.end_position, l.lead_rsid, l.lead_pvalue, " +
-      "       l.n_signals, l.n_candidate_genes, l.source_tag " +
+      "       l.n_signals, l.n_candidate_genes, l.source_tag, " +
+      "       CAST(l.trait_id AS VARCHAR) AS trait_id, t.label AS trait_label " +
       "FROM main.loci l JOIN main.locus_evidence le ON le.locus_id = l.locus_id " +
+      "LEFT JOIN config.traits t ON t.id = l.trait_id " +
       `WHERE le.gene_symbol = ? ORDER BY ${chromOrder("l.chromosome")} NULLS LAST, l.start_position`,
     params: [symbol],
   });
